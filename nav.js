@@ -195,9 +195,9 @@ function buildNavUI() {
     "#navmain{flex:1;min-width:0}",
     /* 層級對調：轉彎動作最大，距離改小字放右邊 */
     "#navtext{font-size:calc(33px * var(--uiScale,1.25));font-weight:900;color:#fff;line-height:1.05}",
-    "#navstreet{font-size:calc(17px * var(--uiScale,1.25));color:#9fb3c8;margin-top:3px;font-weight:700;",
+    "#navstreet{font-size:calc(19px * var(--uiScale,1.25));color:#e8f0f7;margin-top:3px;font-weight:700;",
     "white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-    "#navdist{font-size:calc(15px * var(--uiScale,1.25));font-weight:800;color:#4ade80;margin-top:5px;",
+    "#navdist{font-size:calc(17px * var(--uiScale,1.25));font-weight:900;color:#fde047;margin-top:5px;",
     "letter-spacing:.5px}",
     "#navmap{flex:1;background:#1a2332;position:relative}",
     "#navbottom{background:#111c26;padding:8px 12px 10px;border-top:1px solid #1e2b38}",
@@ -321,7 +321,7 @@ function startNav(routeData, tripRaw) {
   // 畫路線
   if (routeData.geometry && routeData.geometry.length) {
     NAV.lineLayer = L.polyline(routeData.geometry, {
-      color: "#4ade80", weight: 7, opacity: 0.95, lineCap: "round"
+      color: "#22c55e", weight: 9, opacity: 1, lineCap: "round", lineJoin: "round"
     }).addTo(NAV.map);
 
     // 起點 / 終點 / 轉彎點標記
@@ -372,9 +372,14 @@ function onNavPos(pos) {
     NAV.meMarker.setLatLng([la, lo]);
   }
 
-  // 地圖跟隨：若使用者拖過地圖，10 秒後自動跟回（不必再按按鈕）
+  // 地圖跟隨：人走了就讓地圖跟上（原本只判斷 zoom，導致人騎出螢幕也不跟）
+  // 規則：使用者沒手動拖地圖時，人偏離畫面中心超過 90m 就平滑跟上
   if (Date.now() - (NAV.manualPanAt || 0) > 10000) {
-    if (NAV.map.getZoom() < 15) NAV.map.setView([la, lo], 16, { animate: true });
+    var c = NAV.map.getCenter();
+    var offCenter = NAV.map.distance([c.lat, c.lng], [la, lo]);
+    if (offCenter > 90) {
+      NAV.map.panTo([la, lo], { animate: true, duration: 0.5 });
+    }
   }
 
   if (!NAV.route || !NAV.route.maneuvers) return;
@@ -393,6 +398,16 @@ function onNavPos(pos) {
     NAV.idx++;
     updateNavUI();
     speakNext();
+  }
+
+  // ★ 轉彎前自動放大：快到路口時拉近到 18，過彎後回到 16
+  //    （騎車時最需要看清的就是「下一個路口長什麼樣」）
+  if (NAV.map && Date.now() - (NAV.manualPanAt || 0) > 10000) {
+    var nextLen = (ms[NAV.idx] && ms[NAV.idx].length) || 9999;
+    var wantZoom = (nextLen < 120) ? 18 : 16;
+    if (NAV.map.getZoom() !== wantZoom) {
+      NAV.map.setZoom(wantZoom, { animate: true });
+    }
   }
 
   // 剩餘距離與時間
@@ -471,7 +486,7 @@ function doReroute(la, lo) {
     // 重畫路線
     if (NAV.lineLayer) NAV.map.removeLayer(NAV.lineLayer);
     NAV.lineLayer = L.polyline(res.geometry, {
-      color: "#4ade80", weight: 7, opacity: 0.95, lineCap: "round"
+      color: "#22c55e", weight: 9, opacity: 1, lineCap: "round", lineJoin: "round"
     }).addTo(NAV.map);
 
     // 重畫終點
