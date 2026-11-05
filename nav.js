@@ -328,7 +328,15 @@ function startNav(routeData, tripRaw) {
     NAV.markers = [];
     redrawMarkers(routeData);
 
-    NAV.map.fitBounds(NAV.lineLayer.getBounds(), { padding: [50, 50] });
+    // ★ 不要一次縮到看完整條路線（7 公里路線會縮到看不見街道）
+    // 改成：定位到人車附近、街道級縮放；只有拿不到 GPS 才顯示全線
+    if (NAV.lastPos) {
+      NAV.map.setView([NAV.lastPos.lat, NAV.lastPos.lng], 17, { animate: false });
+    } else if (g0.length) {
+      NAV.map.setView(g0[0], 17, { animate: false });
+    } else {
+      NAV.map.fitBounds(NAV.lineLayer.getBounds(), { padding: [50, 50] });
+    }
     NAV.manualPanAt = 0;
   }
 
@@ -596,7 +604,20 @@ function endNav() {
 document.addEventListener("click", function (e) {
   var t = e.target;
   if (!t || !t.id) return;
-  if (t.id === "btnEnd") { endNav(); toast("已結束導航", 1500); }
+  if (t.id === "btnEnd") {
+    // ★ 二次確認：避免騎車誤觸直接關掉導航
+    if (t.dataset.confirm === "1") { endNav(); toast("已結束導航", 1500); return; }
+    t.dataset.confirm = "1";
+    t.textContent = "再按一次結束";
+    toast("再按一次「結束」才會關閉", 2500);
+    setTimeout(function () {
+      if (t.dataset.confirm === "1") {
+        t.dataset.confirm = "";
+        t.textContent = "結束";
+      }
+    }, 4000);
+    return;
+  }
   if (t.id === "btnVoice") {
     NAV.voiceOn = !NAV.voiceOn;
     t.classList.toggle("on", NAV.voiceOn);
