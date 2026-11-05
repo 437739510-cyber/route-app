@@ -216,6 +216,7 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0f1720;
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="diaobo.js"></script>
+<script src="nav.js"></script>
 <script>
 "use strict";
 
@@ -508,13 +509,15 @@ function vRoute(locs, cfg, avoid){
       var mainRatio=names.length?mainN/names.length:0;
       var perSig=25+(45-25)*mainRatio;   // 巷道25秒 / 主幹道45秒
       var waitSig=sig*perSig;
+      var geo = shape ? decodePolyline(shape) : null;
       return {
         distance: s.length*1000,
         duration: s.time + waitSig,      // 真實時間（含等紅燈）
         engineTime: s.time,              // 引擎原始時間
         waitSignal: waitSig,
-        geometry: shape ? decodePolyline(shape) : null,
+        geometry: geo,
         legs: legs, names: names,
+        maneuvers: (typeof extractManeuvers==="function") ? extractManeuvers(d.trip, geo) : [],
         signals: sig, turns: turns,
         alleys: names.filter(function(n){ return /\d+巷|\d+弄/.test(n); }).length
       };
@@ -707,7 +710,8 @@ function applyPlan(i){
   activePlan=i;
   var p=plans[i];
   route={ distance:p.distance, duration:p.duration,
-          geometry:p.geometry, legs:p.legs };
+          geometry:p.geometry, legs:p.legs,
+          maneuvers:p.maneuvers, names:p.names };
   render(); save();
 }
 
@@ -781,6 +785,20 @@ function renderPlans(){
 /* ═══════ 导航 ═══════ */
 function openNav(){
   if(!route){ toast("請先計算路線"); return; }
+  if(!route.maneuvers || !route.maneuvers.length){
+    toast("路線資料不完整，改用外部地圖",2200);
+    openExternalMap();
+    return;
+  }
+  if(typeof startNav==="function"){
+    startNav(route, null);
+  } else {
+    openExternalMap();
+  }
+}
+
+/* 備用：外部 Google 地圖（用 maps 深層連結，減少跳轉確認） */
+function openExternalMap(){
   var seq=(order.length===pts.length&&order.length)?order:pts.map(function(_,i){return i;});
   var c=seq.map(function(i){ return pts[i].lat+","+pts[i].lng; });
   var url="https://www.google.com/maps/dir/?api=1"+
