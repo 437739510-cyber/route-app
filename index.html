@@ -538,12 +538,24 @@ function vRoute(locs, cfg, avoid){
           });
         });
       });
-      var shape="";
-      d.trip.legs.forEach(function(l){ if(l.shape) shape+=l.shape; });
+      // ★ 關鍵修正：每段 shape 必須「獨立解碼」再拼接。
+      // 直接拼 polyline 字符串會讓第二段的相對位移疊加在第一段末點上，
+      // 導致經度累積到 243° → 地圖跨太平洋。
+      var geo=[];
+      d.trip.legs.forEach(function(l){
+        if(!l.shape) return;
+        var seg=decodePolyline(l.shape);
+        // 段與段之間的接點去重
+        if(geo.length && seg.length){
+          var a=geo[geo.length-1], b=seg[0];
+          if(Math.abs(a[0]-b[0])<1e-7 && Math.abs(a[1]-b[1])<1e-7) seg.shift();
+        }
+        geo=geo.concat(seg);
+      });
+      if(!geo.length) geo=null;
       var s=d.trip.summary;
       // 免費引擎無紅燈號志資料，改用「路口數」當估算依据
       var waitSig=0;   // 不再假裝能算出等紅燈時間
-      var geo = shape ? decodePolyline(shape) : null;
       return {
         distance: s.length*1000,
         duration: s.time,                // 引擎預估時間（不含紅燈等待）
