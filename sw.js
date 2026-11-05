@@ -6,7 +6,7 @@
  *   - 地图砖：先网络后缓存（离线时显示看过的区域）
  */
 
-var CACHE = "route-app-v26";   // ★每次部署代码必须 +1，否则旧缓存永远不更新
+var CACHE = "route-app-v27";   // ★每次部署代码必须 +1，否则旧缓存永远不更新
 var SHELL = [
   "./",
   "./index.html",
