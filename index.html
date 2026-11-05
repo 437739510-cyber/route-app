@@ -201,7 +201,7 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0f1720;
     <div id="diaoboNote"></div>
     <div id="planhdr">
       <span>共 <b id="pcount">0</b> 條路線</span>
-      <span id="sortby">排序：紅燈最少</span>
+      <span id="sortby">排序：路口最少</span>
     </div>
   </div>
 
@@ -445,7 +445,7 @@ function updateStat(){
   if(route){
     var p0=plans[activePlan];
     var extra="";
-    if(p0 && p0.waitSignal>30) extra=" (等燈"+Math.round(p0.waitSignal/60)+"分)";
+    if(p0) extra=" · "+p0.signals+"個路口";
     el.textContent=pts.length+" 點 · "+fmtDist(route.distance)+" · "+fmtTime(route.duration)+extra;
   } else if(pts.length){
     el.textContent=pts.length+" 個點（未計算）";
@@ -493,7 +493,7 @@ function vRoute(locs, cfg, avoid){
       d.trip.legs.forEach(function(leg){
         legs.push({distance:leg.summary.length*1000, duration:leg.summary.time});
         leg.maneuvers.forEach(function(m){
-          if(m.type===10||m.type===11||m.type===12) sig++;
+          if(m.type===9||m.type===10||m.type===11||m.type===14||m.type===15||m.type===16) sig++;
           if(m.type>=13&&m.type<=26) turns++;
           (m.street_names||[]).forEach(function(x){
             if(x && names.indexOf(x)<0) names.push(x);
@@ -503,16 +503,12 @@ function vRoute(locs, cfg, avoid){
       var shape="";
       d.trip.legs.forEach(function(l){ if(l.shape) shape+=l.shape; });
       var s=d.trip.summary;
-      // 紅燈真實成本：依主幹道比例加權
-      var MAIN_RE=/中山|忠孝|仁愛|信義|和平|民權|民生|南京|承德|羅斯福|基隆|八德|光復|復興|建國|重慶|中華|文化|縣民|台\d|快速道路|高架|橋/;
-      var mainN=names.filter(function(n){ return MAIN_RE.test(n); }).length;
-      var mainRatio=names.length?mainN/names.length:0;
-      var perSig=25+(45-25)*mainRatio;   // 巷道25秒 / 主幹道45秒
-      var waitSig=sig*perSig;
+      // 免費引擎無紅燈號志資料，改用「路口數」當估算依据
+      var waitSig=0;   // 不再假裝能算出等紅燈時間
       var geo = shape ? decodePolyline(shape) : null;
       return {
         distance: s.length*1000,
-        duration: s.time + waitSig,      // 真實時間（含等紅燈）
+        duration: s.time,                // 引擎預估時間（不含紅燈等待）
         engineTime: s.time,              // 引擎原始時間
         waitSignal: waitSig,
         geometry: geo,
@@ -671,6 +667,7 @@ function optimize(){
                      diaobo: dbx };
                  });
       if(!plans.length) throw new Error("全部失敗");
+      plans = dedupPlans(plans);
       sortPlans();
       activePlan=0;
       applyPlan(0);
@@ -679,7 +676,7 @@ function optimize(){
       document.getElementById("nav").classList.add("show");
       var best=plans[0];
       toast("已算出 "+plans.length+" 條路線 · 推薦「"+STRATS[best.key].label+
-            "」"+best.signals+" 個紅燈",2400);
+            "」· "+best.signals+" 個路口",2400);
     });
   }).catch(function(e){
     console.error(e);
@@ -688,10 +685,39 @@ function optimize(){
   });
 }
 
+/* 幾何相同的路線合併，避免「5 條一樣」的假選擇 */
+function dedupPlans(pl){
+  function sigOf(p){
+    // 取路徑每 ~100m 一個採樣點當特徵串
+    if(!p.geometry || !p.geometry.length) return p.key+p.distance;
+    var step=Math.max(1, Math.round(100/ (p.distance/p.geometry.length || 1)));
+    var s=[];
+    for(var i=0;i<p.geometry.length;i+=step){
+      s.push(p.geometry[i][0].toFixed(3)+","+p.geometry[i][1].toFixed(3));
+    }
+    return s.join(";");
+  }
+  var seen={}, out=[];
+  pl.forEach(function(p){
+    var sig=sigOf(p);
+    if(seen[sig]!==undefined){
+      // 已有一條幾乎相同 → 標籤併過去，不重複列
+      var kept=out[seen[sig]];
+      if(kept.labels.indexOf(STRATS[p.key].label)<0)
+        kept.labels.push(STRATS[p.key].label);
+    } else {
+      seen[sig]=out.length;
+      p.labels=[STRATS[p.key].label];
+      out.push(p);
+    }
+  });
+  return out;
+}
+
 function sortPlans(){
   var cur = plans[activePlan];
   if(sortMode==="signal"){
-    // 按「真實時間」排（已含等紅燈），紅燈數少者優先
+    // 路口少者優先（少紅綠燈＝少停等）
     plans.sort(function(a,b){
       if(a.signals!==b.signals) return a.signals-b.signals;
       return a.duration-b.duration;
@@ -728,7 +754,7 @@ function renderPlans(){
   box.querySelectorAll(".plan").forEach(function(x){ x.remove(); });
   document.getElementById("pcount").textContent = plans.length;
   document.getElementById("sortby").textContent =
-    "排序：" + (sortMode==="signal"?"紅燈最少":sortMode==="time"?"時間最短":"距離最短");
+    "排序：" + (sortMode==="signal"?"路口最少":sortMode==="time"?"時間最短":"距離最短");
 
   var minSig = Math.min.apply(null, plans.map(function(p){ return p.signals; }));
 
@@ -769,10 +795,9 @@ function renderPlans(){
       '</div><div class="n"></div></div>'+
       (p.signals===minSig?'<div class="star">★</div>':'')+
       '<div class="rad"></div>';
-    d.querySelector(".tag").textContent=STRATS[p.key].label;
+    d.querySelector(".tag").textContent=(p.labels||[STRATS[p.key].label]).join("+");
     d.querySelector(".dist").textContent=fmtDist(p.distance)+" · "+fmtTime(p.duration);
-    var sigTxt = "🚦"+p.signals;
-    if (p.waitSignal > 60) sigTxt += " 等"+Math.round(p.waitSignal/60)+"分";
+    var sigTxt = "路口 "+p.signals+" 個";
     d.querySelector(".sig").textContent=sigTxt;
     var nm2 = (p.alleys?p.alleys+"條巷弄 · ":"")+(p.names.slice(0,3).join(" → ")||"—");
     if (p.diaobo && p.diaobo.warn){
