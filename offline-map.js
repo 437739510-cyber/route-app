@@ -14,6 +14,15 @@
 
   /* 區域預設（緯度/經度邊界） */
   var REGIONS = {
+    /* ★ 你的真实跑单走廊：中永和 ⇄ 台北市（含所有跨河桥） */
+    corridor: {
+      name: "中永和 ⇄ 台北市（含所有跨河橋）",
+      boxes: [
+        { latMin: 24.965, latMax: 25.035, lngMin: 121.465, lngMax: 121.535 },  // 中和+永和
+        { latMin: 24.945, latMax: 25.215, lngMin: 121.465, lngMax: 121.675 }   // 台北市12区
+      ],
+      zMin: 13, zMax: 17
+    },
     core: {
       name: "中永和·板橋·台北西區",
       latMin: 24.96, latMax: 25.10, lngMin: 121.42, lngMax: 121.58,
@@ -33,13 +42,20 @@
   }
 
   function tileList(reg) {
-    var out = [];
-    for (var z = reg.zMin; z <= reg.zMax; z++) {
-      var x0 = lng2x(reg.lngMin, z), x1 = lng2x(reg.lngMax, z);
-      var y0 = lat2y(reg.latMax, z), y1 = lat2y(reg.latMin, z);
-      for (var x = x0; x <= x1; x++) {
-        for (var y = y0; y <= y1; y++) {
-          out.push({ z: z, x: x, y: y });
+    var boxes = reg.boxes || [reg];
+    var seen = {}, out = [];
+    for (var bi = 0; bi < boxes.length; bi++) {
+      var b = boxes[bi];
+      for (var z = reg.zMin; z <= reg.zMax; z++) {
+        var x0 = lng2x(b.lngMin, z), x1 = lng2x(b.lngMax, z);
+        var y0 = lat2y(b.latMax, z), y1 = lat2y(b.latMin, z);
+        for (var x = x0; x <= x1; x++) {
+          for (var y = y0; y <= y1; y++) {
+            var k = z + "/" + x + "/" + y;
+            if (seen[k]) continue;      // ★ 多個框重疊處去重
+            seen[k] = 1;
+            out.push({ z: z, x: x, y: y });
+          }
         }
       }
     }
