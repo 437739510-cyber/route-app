@@ -390,6 +390,8 @@ function onNavPos(pos) {
   var ms = NAV.route.maneuvers;
 
   // 找最近的 maneuver 點，推進進度
+  // ★ 原本用「靠近轉彎點 30m」推進 → 騎過頭就永遠卡住（永遠停在「出發」）
+  // 改成：沿路線已走距離超過這段的累計終點，就推進（騎過頭也能正確前進）
   var best = NAV.idx, bestD = Infinity;
   for (var i = NAV.idx; i < Math.min(ms.length, NAV.idx + 4); i++) {
     if (ms[i].lat == null) continue;
@@ -397,7 +399,24 @@ function onNavPos(pos) {
     if (d < bestD) { bestD = d; best = i; }
   }
 
-  // 到達轉彎點（30 公尺內）
+  // 用「離路線最近點」估算已走進度，推進 maneuver
+  if (NAV.lineLayer) {
+    var pts0 = NAV.lineLayer.getLatLngs();
+    var nearIdx = 0, nearD = Infinity;
+    for (var q = 0; q < pts0.length; q++) {
+      var dq = haversine(la, lo, pts0[q].lat, pts0[q].lng);
+      if (dq < nearD) { nearD = dq; nearIdx = q; }
+    }
+    // 已走到近路線的第 nearIdx 點 → 找出所有 end <= nearIdx 的 maneuver
+    var advanced = false;
+    while (NAV.idx < ms.length - 1 && ms[NAV.idx].end != null && ms[NAV.idx].end <= nearIdx) {
+      NAV.idx++;
+      advanced = true;
+    }
+    if (advanced) { updateNavUI(); speakNext(); }
+  }
+
+  // 備援：真的到達轉彎點 30 公尺內也推進
   if (bestD < 30 && best === NAV.idx && NAV.idx < ms.length - 1) {
     NAV.idx++;
     updateNavUI();
