@@ -1167,8 +1167,9 @@ function updateDiaoboBar(){
 
     // 能力
     var cap=[];
+    var natTTS=(function(){ try{ return !!(window.AndroidTTS && window.AndroidTTS.ready && window.AndroidTTS.ready()); }catch(e){ return false; } })();
     cap.push(['GPS定位', !!navigator.geolocation]);
-    cap.push(['語音TTS', !!window.speechSynthesis]);
+    cap.push(['語音TTS', natTTS || !!window.speechSynthesis]);
     cap.push(['螢幕常亮', !!navigator.wakeLock]);
     cap.push(['震動', !!navigator.vibrate]);
     cap.push(['離線執行緒', !!window.Worker]);
@@ -1178,6 +1179,12 @@ function updateDiaoboBar(){
     var online = navigator.onLine!==false;
     html.push(row("目前網路", online?"在線 ✅":"斷線 ⚠️", online?"":"warn"));
 
+    // 語音包：APK 內用原生引擎，不依賴網頁語音列表
+    if(natTTS){
+      var langTxt="zh-TW";
+      try{ langTxt=window.AndroidTTS.lang()||"zh-TW"; }catch(e){}
+      html.push('<div class="chkrow"><b>語音包</b><span>手機原生語音引擎 ✅ ('+langTxt+')</span></div>');
+    } else {
     // TTS 语音列表（Chrome 首次常回空，需等 voiceschanged）
     try{
       var vs=speechSynthesis.getVoices();
@@ -1201,6 +1208,7 @@ function updateDiaoboBar(){
         try{ var kk=new SpeechSynthesisUtterance(" "); kk.volume=0; speechSynthesis.speak(kk); }catch(e){}
       }
     }catch(e){ html.push(row("語音包","讀取失敗 ❌","bad")); }
+    }
 
     rows.innerHTML=html.join("");
 
@@ -1228,9 +1236,12 @@ function updateDiaoboBar(){
       if(cnt>=5){
         done=true; clearTimeout(deadline);
         navigator.geolocation.clearWatch(w);
-        var grade = best<=10?"導航級 ✅":(best<=30?"可用 ⚠️":"飄移 ❌ 建議到空旷處再測");
-        var cls = best<=10?"":(best<=30?"warn":"bad");
-        if(el){ el.textContent="最佳 ±"+Math.round(best)+"m · 平均 ±"+avg+"m → "+grade; el.className=cls; }
+        var grade, cls, hint;
+        if (best <= 10) { grade = "導航級 ✅"; cls = ""; hint = ""; }
+        else if (best <= 30) { grade = "可用 ⚠️"; cls = "warn"; hint = ""; }
+        else if (best <= 150) { grade = "偏差大 ⚠️"; cls = "warn"; hint = "　（在室內常見，到戶外空曠處會好很多）"; }
+        else { grade = "室內定位 ❌"; cls = "bad"; hint = "　→ 這個數字是在屋內用 WiFi 基地台定位，**不是手機壞**。騎到戶外空曠處再測一次。"; }
+        if(el){ el.textContent="最佳 ±"+Math.round(best)+"m · 平均 ±"+avg+"m → "+grade+hint; el.className=cls; }
       }
     }, function(err){
       done=true; clearTimeout(deadline);
