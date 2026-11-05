@@ -996,7 +996,8 @@ function updateDiaoboBar(){
     }
     html.push(row("系統",/Android\s([\d.]+)/i.test(ua)?("Android "+ua.match(/Android\s([\d.]+)/i)[1]):(ua.indexOf("iPhone")>=0?"iOS":(ua.indexOf("Mac")>=0?"macOS":"其他"))));
     html.push(row("瀏覽器",ua.indexOf("Chrome/")>=0&&ua.indexOf("Edg/")<0?("Chrome "+(ua.match(/Chrome\/([\d.]+)/)||[0,"?"])[1]):"其他"));
-    html.push(row("微信內浏览器",/MicroMessenger/i.test(ua)?"⚠️ 是，建議用外部浏览器開":"否 ✅",""));
+    var inWx = /MicroMessenger/i.test(ua);
+    html.push(row("微信內瀏覽器", inWx ? "⚠️ 是 → 語音會失效，請用 Chrome 開" : "否 ✅", inWx ? "warn" : ""));
     html.push(row("觸控點數",navigator.maxTouchPoints||1));
     html.push(row("螢幕",screen.width+"×"+screen.height+" @"+(devicePixelRatio||1)+"x"));
 
@@ -1075,8 +1076,34 @@ function updateDiaoboBar(){
     }, {enableHighAccuracy:true, maximumAge:0, timeout:15000});
   }
 
-  btn.onclick=function(){ modal.classList.add("show"); runCheck(); };
+  btn.onclick=function(){ modal.classList.add("show"); runCheck(); runCheckUi(); };
   document.getElementById("chkclose").onclick=function(){ modal.classList.remove("show"); };
+
+  // 在微信裡 → 給「一鍵到 Chrome」的按鈕（微信會攔 scheme，所以用 intent + 引導）
+  function offerChrome(){
+    if(!/MicroMessenger/i.test(navigator.userAgent)) return;
+    if(document.getElementById("wxfix")) return;
+    var box=document.getElementById("chkbtns");
+    if(!box) return;
+    var b=document.createElement("button");
+    b.className="btn"; b.id="wxfix"; b.textContent="用 Chrome 開（修語音）";
+    b.style.background="#2b6cb0";
+    b.onclick=function(){
+      var here=location.href;
+      // Android：intent 直接指定 Chrome
+      var intent="intent://"+here.replace(/^https?:\/\//,"")+
+        "#Intent;scheme=https;package=com.android.chrome;end";
+      try{ location.href=intent; }catch(e){}
+      setTimeout(function(){
+        // 失敗就給可複製的網址 + 手把手步驟
+        try{ navigator.clipboard.writeText(here); }catch(e){}
+        toast("已複製網址 → 點右上「…」→ 在瀏覽器開啟",6000);
+      },1200);
+    };
+    box.insertBefore(b, box.firstChild);
+  }
+
+  function runCheckUi(){ offerChrome(); }
   document.getElementById("chkspeak").onclick=function(){
     try{
       var u=new SpeechSynthesisUtterance("前方五十公尺，右轉進入中正路");
