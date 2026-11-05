@@ -83,7 +83,23 @@ self.addEventListener("fetch", function (e) {
     return;
   }
 
-  // 4) 自家资源：缓存优先（秒开），后台更新
+  // 4) 页面导航（开 App）：先网络，离线才用缓存 → 一改就生效，不会卡在旧版
+  if (req.mode === "navigate" || /\/route-app\/(index\.html)?$/.test(url.pathname)) {
+    e.respondWith(
+      fetch(req).then(function (r) {
+        if (r && r.status === 200) {
+          var cp = r.clone();
+          caches.open(CACHE).then(function (c) { c.put(req, cp); });
+        }
+        return r;
+      }).catch(function () {
+        return caches.match(req).then(function (h) { return h || caches.match("./index.html"); });
+      })
+    );
+    return;
+  }
+
+  // 5) 自家资源：缓存优先（秒开），后台更新
   e.respondWith(
     caches.match(req).then(function (hit) {
       var net = fetch(req).then(function (r) {
