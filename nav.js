@@ -316,7 +316,11 @@ function startNav(routeData, tripRaw) {
 
   // 記錄「使用者自己拖過地圖」的時間點 → 10 秒後才恢復自動跟隨
   NAV.map.on("dragstart", function () { NAV.manualPanAt = Date.now(); });
-  NAV.map.on("zoomstart", function () { NAV.manualPanAt = Date.now(); });
+  // 使用者「手動」縮放才記錄（程式自己改的不算，否則自動縮放會誤鎖住跟隨）
+  NAV.map.on("zoomstart", function () {
+    if (NAV.autoZooming) return;              // 程式觸發的縮放不算使用者操作
+    NAV.manualPanAt = Date.now();
+  });
 
   // 畫路線
   if (routeData.geometry && routeData.geometry.length) {
@@ -406,7 +410,9 @@ function onNavPos(pos) {
     var nextLen = (ms[NAV.idx] && ms[NAV.idx].length) || 9999;
     var wantZoom = (nextLen < 120) ? 18 : 16;
     if (NAV.map.getZoom() !== wantZoom) {
+      NAV.autoZooming = true;                 // 標記：這是程式縮放，不是使用者操作
       NAV.map.setZoom(wantZoom, { animate: true });
+      setTimeout(function () { NAV.autoZooming = false; }, 900);
     }
   }
 
