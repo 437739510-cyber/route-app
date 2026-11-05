@@ -667,6 +667,7 @@ function optimize(){
                      legs:x.res.legs, names:x.res.names,
                      signals:x.res.signals, turns:x.res.turns,
                      alleys:x.res.alleys,
+                     maneuvers: x.res.maneuvers || [],
                      diaobo: dbx };
                  });
       if(!plans.length) throw new Error("全部失敗");
