@@ -2,14 +2,18 @@
   "name": "跑單路線 · 機車版",
   "short_name": "跑單路線",
   "description": "台灣機車外送路線規劃：機車專用道、調撥車道警示、小巷避紅燈、順路最佳化",
-  "start_url": "./index.html",
-  "scope": "./",
+  "start_url": ".",
+  "scope": ".",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0f1720",
   "theme_color": "#0f1720",
   "lang": "zh-Hant-TW",
-  "categories": ["navigation", "productivity", "travel"],
+  "categories": [
+    "navigation",
+    "productivity",
+    "travel"
+  ],
   "icons": [
     {
       "src": "./icons/icon-192.png",
@@ -36,7 +40,17 @@
       "short_name": "導航",
       "description": "直接開啟路線規劃",
       "url": "./index.html",
-      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192" }]
+      "icons": [
+        {
+          "src": "./icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
     }
+  ],
+  "id": "route-app",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
   ]
 }
