@@ -433,7 +433,7 @@ function drawPins(seq){
 function drawLine(){
   layerLine.clearLayers();
   if(!route||!route.geometry) return;
-  var ll=route.geometry.map(function(c){ return [c[1],c[0]]; });
+  var ll=route.geometry.map(function(c){ return [c[0],c[1]]; });   // geometry 已是 [lat,lng]
   var col = plans[activePlan] ? STRATS[plans[activePlan].key].color : "#0ea5e9";
   L.polyline(ll,{color:col,weight:7,opacity:.25,lineCap:"round"}).addTo(layerLine);
   L.polyline(ll,{color:col,weight:3,opacity:.95,lineCap:"round"}).addTo(layerLine);
