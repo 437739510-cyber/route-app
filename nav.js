@@ -184,6 +184,8 @@ function buildNavUI() {
 
   var css = document.createElement("style");
   css.textContent = [
+    /* ★ 保底：確保 --uiScale 一定有值（主頁可能還沒設） */
+    ":root{--uiScale:1.25}",
     "#navui{position:fixed;inset:0;background:#0f1720;z-index:9000;display:none;",
     "flex-direction:column;font-family:-apple-system,'Noto Sans TC',sans-serif}",
     "#navui.on{display:flex}",
