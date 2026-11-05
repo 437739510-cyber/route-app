@@ -258,6 +258,15 @@ var DIAOBO_COORDS = {
 };
 
 /* ═══════ 工具 ═══════ */
+/* 離線提示 */
+function checkOnline(){
+  if(navigator.onLine===false){
+    toast("📴 目前沒有網路<br>路線要連網才能算",3500);
+  }
+}
+window.addEventListener("offline", function(){ toast("📴 斷網了<br>已算好的路線仍可看",3000); });
+window.addEventListener("online",  function(){ toast("✅ 網路回來了",1600); });
+
 function toast(m, ms){
   var el = document.getElementById("toast");
   el.textContent = m; el.classList.add("show");
