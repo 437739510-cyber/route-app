@@ -975,11 +975,25 @@ function updateDiaoboBar(){
     var html=[];
     var ua=navigator.userAgent;
     var brand="未知";
-    if(/Xiaomi|Redmi|MI /i.test(ua)) brand="Xiaomi/Redmi";
+    if(/Xiaomi|Redmi|MI |HyperOS/i.test(ua)) brand="Xiaomi/Redmi";
     else if(/Pixel|Google/i.test(ua)) brand="Google Pixel";
     else if(/SM-|Samsung/i.test(ua)) brand="Samsung";
     else if(/HUAWEI|HarmonyOS/i.test(ua)) brand="Huawei";
     html.push(row("手機品牌",brand));
+    // 拿真實機型（Chrome 支援；點自檢=使用者手势，可用）
+    if(navigator.userAgentData && navigator.userAgentData.getHighEntropyValues){
+      html.push('<div class="chkrow"><b>機型</b><span id="brandcell">查詢中…</span></div>');
+      navigator.userAgentData.getHighEntropyValues(["model","platformVersion"])
+        .then(function(hi){
+          var el=document.getElementById("brandcell");
+          if(el && hi.model){
+            el.textContent=hi.model+(hi.platformVersion?(" · "+hi.platformVersion):"");
+          } else if(el){ el.textContent="查不到"; }
+        }).catch(function(){
+          var el=document.getElementById("brandcell");
+          if(el) el.textContent="查不到";
+        });
+    }
     html.push(row("系統",/Android\s([\d.]+)/i.test(ua)?("Android "+ua.match(/Android\s([\d.]+)/i)[1]):(ua.indexOf("iPhone")>=0?"iOS":(ua.indexOf("Mac")>=0?"macOS":"其他"))));
     html.push(row("瀏覽器",ua.indexOf("Chrome/")>=0&&ua.indexOf("Edg/")<0?("Chrome "+(ua.match(/Chrome\/([\d.]+)/)||[0,"?"])[1]):"其他"));
     html.push(row("微信內浏览器",/MicroMessenger/i.test(ua)?"⚠️ 是，建議用外部浏览器開":"否 ✅",""));
@@ -999,11 +1013,28 @@ function updateDiaoboBar(){
     var online = navigator.onLine!==false;
     html.push(row("目前網路", online?"在線 ✅":"斷線 ⚠️", online?"":"warn"));
 
-    // TTS 语音列表（中文）
+    // TTS 语音列表（Chrome 首次常回空，需等 voiceschanged）
     try{
       var vs=speechSynthesis.getVoices();
-      var zh=vs.filter(function(v){return /^zh/i.test(v.lang);});
-      html.push(row("語音包", vs.length? (zh.length? ("中文 "+zh.length+" 個 ✅ ("+(zh[0].name||"").slice(0,18)+")") : "只有英文 "+vs.length+" 個 ⚠️") : "讀取中…再按一次", zh.length?"":(vs.length?"warn":"warn")));
+      function paint(list){
+        var zh=list.filter(function(v){return /^zh/i.test(v.lang);});
+        var txt = !list.length ? "讀取中…" :
+                  (zh.length ? ("中文 "+zh.length+" 個 ✅ ("+(zh[0].name||"").slice(0,16)+")")
+                             : ("只有英文 "+list.length+" 個 ⚠️ 可能唸不出中文"));
+        var cls = zh.length ? "" : (list.length ? "warn" : "bad");
+        return {txt:txt, cls:cls};
+      }
+      var p0=paint(vs);
+      html.push('<div class="chkrow"><b>語音包</b><span id="vo_cell" class="'+p0.cls+'">'+p0.txt+'</span></div>');
+      if(!vs.length){
+        speechSynthesis.onvoiceschanged=function(){
+          var p=paint(speechSynthesis.getVoices());
+          var el=document.getElementById("vo_cell");
+          if(el){ el.textContent=p.txt; el.className=p.cls; }
+        };
+        // Some browsers need a kick
+        try{ var kk=new SpeechSynthesisUtterance(" "); kk.volume=0; speechSynthesis.speak(kk); }catch(e){}
+      }
     }catch(e){ html.push(row("語音包","讀取失敗 ❌","bad")); }
 
     rows.innerHTML=html.join("");
