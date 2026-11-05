@@ -902,5 +902,19 @@ function updateDiaoboBar(){
   if(!pts.length) setTimeout(function(){ toast("輸入地址，或按 ◎ 定位自己",2800); },700);
 })();
 </script>
+<script>
+/* 註冊 Service Worker（讓 App 可安裝、可離線開） */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("./sw.js", { scope: "./" })
+      .then(function (reg) {
+        console.log("[SW] 已註冊 scope=", reg.scope);
+      })
+      .catch(function (err) {
+        console.warn("[SW] 註冊失敗", err);
+      });
+  });
+}
+</script>
 </body>
 </html>
