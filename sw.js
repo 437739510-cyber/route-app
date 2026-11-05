@@ -6,7 +6,7 @@
  *   - 地图砖：先网络后缓存（离线时显示看过的区域）
  */
 
-var CACHE = "route-app-v7";   // ★每次部署代码必须 +1，否则旧缓存永远不更新
+var CACHE = "route-app-v5";   // ★每次部署代码必须 +1，否则旧缓存永远不更新
 var SHELL = [
   "./",
   "./index.html",
@@ -99,17 +99,18 @@ self.addEventListener("fetch", function (e) {
     return;
   }
 
-  // 5) 自家资源：缓存优先（秒开），后台更新
+  // 5) 自家资源：先网络（保证一改就生效），断网才用缓存
   e.respondWith(
-    caches.match(req).then(function (hit) {
-      var net = fetch(req).then(function (r) {
-        if (r && r.status === 200) {
-          var cp = r.clone();
-          caches.open(CACHE).then(function (c) { c.put(req, cp); });
-        }
-        return r;
-      }).catch(function () { return hit; });
-      return hit || net;
+    fetch(req).then(function (r) {
+      if (r && r.status === 200) {
+        var cp = r.clone();
+        caches.open(CACHE).then(function (c) { c.put(req, cp); });
+      }
+      return r;
+    }).catch(function () {
+      return caches.match(req).then(function (h) {
+        return h || caches.match("./index.html");
+      });
     })
   );
 });
