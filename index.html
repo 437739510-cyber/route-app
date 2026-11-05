@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0f1720">
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="跑單路線">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="application-name" content="跑單路線">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>機車跑單 · 路線優化</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0f1720;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+  color:#e8eef5;-webkit-text-size-adjust:100%}
+#map{position:absolute;inset:0;z-index:1;background:#1a2430}
+
+#topbar{position:absolute;top:0;left:0;right:0;z-index:1000;
+  padding:calc(env(safe-area-inset-top) + 8px) 10px 10px;
+  background:linear-gradient(180deg,rgba(15,23,32,.97),rgba(15,23,32,.85) 65%,transparent);
+  pointer-events:none}
+#topbar .row{display:flex;align-items:center;gap:8px;pointer-events:auto}
+#title{font-size:13px;font-weight:700;color:#7dd3fc;flex:1;letter-spacing:.3px}
+#badge{font-size:10px;padding:2px 7px;border-radius:20px;background:#0d4f6e;
+  color:#7dd3fc;border:1px solid #1a6f94;font-weight:600;white-space:nowrap}
+#stat{font-size:11px;color:#94a3b8;text-align:right;line-height:1.35;max-width:48%;
+  font-variant-numeric:tabular-nums}
+
+#sheet{position:absolute;left:0;right:0;bottom:0;z-index:1000;
+  background:rgba(22,32,44,.975);backdrop-filter:blur(16px);
+  border-radius:18px 18px 0 0;border-top:1px solid rgba(125,211,252,.22);
+  box-shadow:0 -8px 32px rgba(0,0,0,.55);
+  padding:6px 12px calc(env(safe-area-inset-bottom) + 10px);
+  max-height:74vh;display:flex;flex-direction:column;
+  transition:transform .22s cubic-bezier(.4,0,.2,1)}
+#sheet.collapsed{transform:translateY(calc(100% - 52px))}
+#handle{width:38px;height:4px;border-radius:2px;background:#3d4f63;
+  margin:2px auto 7px;flex:0 0 auto}
+
+#inputwrap{display:flex;gap:7px;margin-bottom:8px;flex:0 0 auto}
+#addr{flex:1;background:#0e1720;border:1px solid #2b3a4a;border-radius:11px;
+  padding:11px 13px;color:#e8eef5;font-size:15px;outline:none;min-width:0}
+#addr::placeholder{color:#5a6b7d}
+#addr:focus{border-color:#0ea5e9;box-shadow:0 0 0 3px rgba(14,165,233,.15)}
+.iconbtn{width:44px;height:44px;flex:0 0 auto;border-radius:11px;
+  background:#1e2c3a;color:#7dd3fc;font-size:19px;display:flex;
+  align-items:center;justify-content:center;cursor:pointer;border:1px solid #2b3a4a;
+  user-select:none}
+.iconbtn:active{background:#26384a}
+
+#sug{position:absolute;left:12px;right:12px;bottom:100%;margin-bottom:6px;
+  background:#0e1720;border:1px solid #2b3a4a;border-radius:11px;overflow:hidden;
+  display:none;max-height:38vh;overflow-y:auto;z-index:1200;
+  box-shadow:0 -6px 24px rgba(0,0,0,.6)}
+#sug div{padding:10px 13px;font-size:13px;border-bottom:1px solid #1c2836;cursor:pointer}
+#sug div:last-child{border-bottom:none}
+#sug div:active{background:#1a2836}
+#sug .nm{color:#e8eef5;font-weight:600;line-height:1.35}
+#sug .ad{color:#7a8ca0;font-size:11px;margin-top:2px;line-height:1.3}
+
+#list{flex:0 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  margin:0 -4px;padding:0 4px;min-height:40px;max-height:26vh}
+.item{display:flex;align-items:center;gap:9px;background:#131e2a;
+  border:1px solid #243342;border-radius:11px;padding:9px 10px;margin-bottom:6px;
+  cursor:grab;position:relative}
+.item.start{background:#132a20;border-color:#2d6a4f}
+.item.dragging{opacity:.4;border-color:#0ea5e9}
+.item .num{width:26px;height:26px;flex:0 0 auto;border-radius:50%;
+  background:#0ea5e9;color:#001824;font-size:13px;font-weight:800;
+  display:flex;align-items:center;justify-content:center}
+.item.start .num{background:#22c55e;color:#00220d}
+.item .body{flex:1;min-width:0}
+.item .nm{font-size:13.5px;font-weight:600;color:#e8eef5;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .meta{font-size:11px;color:#7a8ca0;margin-top:2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .leg{font-size:10.5px;color:#38bdf8;margin-top:2px;
+  font-variant-numeric:tabular-nums}
+.item .del{width:30px;height:30px;flex:0 0 auto;border:none;background:transparent;
+  color:#6b7d90;font-size:17px;cursor:pointer;border-radius:8px;padding:0}
+.item .del:active{background:#3a1f24;color:#f87171}
+
+#actions{display:flex;gap:8px;margin-top:8px;flex:0 0 auto}
+.btn{flex:1;border:none;border-radius:12px;padding:14px 8px;font-size:15px;
+  font-weight:700;cursor:pointer;letter-spacing:.3px}
+.btn:active{transform:scale(.985)}
+#go{background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;
+  box-shadow:0 4px 14px rgba(14,165,233,.35)}
+#go:disabled{background:#243342;color:#5a6b7d;box-shadow:none}
+#nav{background:linear-gradient(135deg,#22c55e,#16a34a);color:#03240f;
+  box-shadow:0 4px 14px rgba(34,197,94,.3);display:none}
+#nav.show{display:block}
+#clear{flex:0 0 58px;background:#1e2c3a;color:#94a3b8;border:1px solid #2b3a4a}
+
+/* 方案卡 */
+#plans{display:none;margin-top:8px;flex:0 1 auto;overflow-y:auto;max-height:34vh}
+#plans.show{display:block}
+#planhdr{font-size:10.5px;color:#7a8ca0;margin-bottom:5px;
+  display:flex;justify-content:space-between;align-items:center}
+#planhdr b{color:#7dd3fc;font-size:11px}
+#sortby{font-size:10px;padding:3px 8px;border-radius:20px;background:#1e2c3a;
+  border:1px solid #2b3a4a;color:#8fa3b8;cursor:pointer}
+.plan{display:flex;align-items:center;gap:8px;background:#131e2a;
+  border:1px solid #243342;border-radius:11px;padding:8px 10px;margin-bottom:5px;
+  cursor:pointer;transition:.13s}
+.plan.on{border-color:#0ea5e9;background:#0f2a3a}
+.plan.best{border-color:#22c55e}
+.plan .tag{font-size:9.5px;padding:2px 6px;border-radius:20px;font-weight:700;
+  flex:0 0 auto;white-space:nowrap;min-width:44px;text-align:center}
+.plan .tag.a{background:#1e3a5f;color:#7dd3fc}
+.plan .tag.b{background:#3a2f1e;color:#fcd34d}
+.plan .tag.c{background:#1e3a2a;color:#6ee7b7}
+.plan .tag.d{background:#2e1e3a;color:#c4b5fd}
+.plan .tag.e{background:#3a1e1e;color:#fca5a5}
+.plan .inf{flex:1;min-width:0}
+.plan .d{font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums;
+  display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.plan .d .sig{font-size:10.5px;color:#fbbf24;font-weight:600}
+.plan .d .sig.good{color:#22c55e}
+.plan .d .sig.bad{color:#f87171}
+.plan .n{font-size:10px;color:#7a8ca0;margin-top:2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plan .rad{width:15px;height:15px;border-radius:50%;border:2px solid #3d4f63;
+  flex:0 0 auto}
+.plan.on .rad{border-color:#0ea5e9;background:#0ea5e9;
+  box-shadow:inset 0 0 0 3px #0f2a3a}
+.plan .star{font-size:9px;color:#22c55e;font-weight:700;flex:0 0 auto}
+
+#toast{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);
+  background:rgba(10,18,26,.96);border:1px solid #2b3a4a;color:#e8eef5;
+  padding:11px 19px;border-radius:12px;font-size:13px;z-index:2000;
+  max-width:84vw;text-align:center;line-height:1.45;
+  opacity:0;pointer-events:none;transition:opacity .2s}
+#toast.show{opacity:1}
+
+.pin{width:28px;height:28px;border-radius:50%;background:#0ea5e9;color:#001824;
+  font-size:13px;font-weight:800;display:flex;align-items:center;justify-content:center;
+  border:2.5px solid #fff;box-shadow:0 2px 10px rgba(0,0,0,.6)}
+.pin.s{background:#22c55e;color:#00220d}
+#diaoboBar{display:none;position:absolute;left:0;right:0;
+  top:calc(env(safe-area-inset-top) + 0px);z-index:1001;
+  background:linear-gradient(135deg,#b91c1c,#991b1b);color:#fff;
+  padding:8px 14px;font-size:12.5px;font-weight:700;text-align:center;
+  box-shadow:0 3px 14px rgba(185,28,28,.55);line-height:1.4}
+#diaoboBar.show{display:block}
+#diaoboBar .sub{font-size:10.5px;font-weight:500;opacity:.92;margin-top:2px}
+
+.warnbox{background:#3a1a1a;border:1px solid #7f1d1d;border-radius:11px;
+  padding:9px 11px;margin-bottom:6px;font-size:11.5px;color:#fca5a5;line-height:1.45}
+.warnbox b{color:#f87171}
+.plan .warn{font-size:9.5px;color:#f87171;font-weight:700;margin-left:3px}
+.plan .avoided{font-size:9.5px;color:#22c55e;font-weight:700;margin-left:3px}
+.plan .caution{font-size:9.5px;color:#fbbf24;font-weight:700;margin-left:3px}
+#diaoboNote{display:none;background:#132a20;border:1px solid #2d6a4f;
+  border-radius:10px;padding:8px 11px;margin-bottom:6px;font-size:11.5px;
+  color:#86efac;line-height:1.5}
+#diaoboNote.show{display:block}
+#diaoboNote b{color:#4ade80}
+
+.leaflet-control-attribution{background:rgba(10,18,26,.78)!important;
+  color:#5a6b7d!important;font-size:9px!important;padding:1px 5px!important}
+.leaflet-control-attribution a{color:#6b8299!important}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="diaoboBar"></div>
+
+<div id="topbar">
+  <div class="row">
+    <div id="title">機車跑單</div>
+    <div id="badge">機車</div>
+    <div id="stat">尚未加入地點</div>
+  </div>
+</div>
+
+<div id="sheet">
+  <div id="handle"></div>
+
+  <div id="inputwrap">
+    <input id="addr" type="search" placeholder="輸入地址或店名…" autocomplete="off"
+           autocorrect="off" autocapitalize="off" spellcheck="false">
+    <div class="iconbtn" id="gps">◎</div>
+    <div class="iconbtn" id="add">＋</div>
+  </div>
+  <div id="sug"></div>
+
+  <div id="list"></div>
+
+  <div id="plans">
+    <div id="diaoboNote"></div>
+    <div id="planhdr">
+      <span>共 <b id="pcount">0</b> 條路線</span>
+      <span id="sortby">排序：紅燈最少</span>
+    </div>
+  </div>
+
+  <div id="actions">
+    <button class="btn" id="clear">清除</button>
+    <button class="btn" id="go">計算最佳路線</button>
+    <button class="btn" id="nav">開始導航</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="diaobo.js"></script>
+<script>
+"use strict";
+
+var VALHALLA = "https://valhalla1.openstreetmap.de";
+var PHOTON   = "https://photon.komoot.io/api/";
+var LS_KEY   = "moto_route_v3";
+
+var pts = [], order = [], route = null;
+var plans = [], activePlan = 0, sortMode = "signal";
+var map, layerLine, layerPins, userMarker;
+
+/* ═══════ 五种策略（全部实际计算，按结果排序）═══════ */
+var STRATS = {
+  fast: { label:"最快", cfg:{}, color:"#0ea5e9" },
+  alley:{ label:"鑽小巷", cfg:{ use_primary:0.0, use_secondary:0.0,
+          use_tertiary:0.3, use_residential:1.0,
+          use_living_streets:1.0, use_service_roads:1.0 }, color:"#fbbf24" },
+  short:{ label:"最短距離", cfg:{ shortest:true }, color:"#34d399" },
+  nopri:{ label:"避主幹道", cfg:{ use_primary:0.0, use_secondary:0.2,
+          use_tertiary:0.8, use_residential:1.0,
+          use_living_streets:1.0 }, color:"#c084fc" },
+  slow: { label:"慢速優先", cfg:{ top_speed:40, use_primary:0.3,
+          use_secondary:0.5 }, color:"#f87171" }
+};
+var STRAT_KEYS = ["fast","alley","short","nopri","slow"];
+var TAG_CLASS = { fast:"a", alley:"b", short:"c", nopri:"d", slow:"e" };
+
+/* ═══════ 調撥路段座標（用於強制避開）═══════ */
+var DIAOBO_COORDS = {
+  "民權東路":{lat:25.0621,lng:121.5455}, "水源路":{lat:25.0185,lng:121.5290},
+  "承德路":{lat:25.0867,lng:121.5230},   "羅斯福路":{lat:25.0230,lng:121.5255},
+  "光復南路":{lat:25.0405,lng:121.5560}, "八德路":{lat:25.0455,lng:121.5450},
+  "南京東路":{lat:25.0520,lng:121.5380}, "民生東路":{lat:25.0600,lng:121.5480},
+  "忠孝東路":{lat:25.0456,lng:121.5197}, "基隆路":{lat:25.0320,lng:121.5600},
+  "濱江街":{lat:25.0680,lng:121.5420},   "研究院路":{lat:25.0450,lng:121.6100},
+  "南港路":{lat:25.0530,lng:121.6070},   "中山北路":{lat:25.0500,lng:121.5230},
+  "永福橋":{lat:25.0108,lng:121.5273},   "中正橋":{lat:25.0211,lng:121.5157},
+  "永和路":{lat:25.0074,lng:121.4964},   "永元路":{lat:24.9985,lng:121.5075},
+  "四維街":{lat:24.9871,lng:121.5129}
+};
+
+/* ═══════ 工具 ═══════ */
+function toast(m, ms){
+  var el = document.getElementById("toast");
+  el.textContent = m; el.classList.add("show");
+  clearTimeout(el._t); el._t = setTimeout(function(){ el.classList.remove("show"); }, ms||1500);
+}
+function fmtDist(m){ return m==null?"—":(m<1000?Math.round(m)+"m":(m/1000).toFixed(1)+"km"); }
+function fmtTime(s){
+  if (s==null) return "—";
+  var m = Math.round(s/60);
+  return m<60 ? m+"分" : Math.floor(m/60)+"時"+(m%60)+"分";
+}
+function save(){
+  try{ localStorage.setItem(LS_KEY, JSON.stringify({pts:pts, order:order, sortMode:sortMode})); }catch(e){}
+}
+function load(){
+  try{
+    var d=JSON.parse(localStorage.getItem(LS_KEY)||"null");
+    if(d){ if(d.pts) pts=d.pts; if(d.order) order=d.order; if(d.sortMode) sortMode=d.sortMode; }
+  }catch(e){}
+}
+
+/* ═══════ 地图 ═══════ */
+function initMap(){
+  map = L.map("map",{ zoomControl:false, preferCanvas:true })
+          .setView([25.0069,121.4994],15);
+  var esri = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+    {maxZoom:19, attribution:'地圖 © Esri'});
+  esri.addTo(map);
+  var ok=false; esri.on("tileload",function(){ ok=true; });
+  setTimeout(function(){
+    if(!ok){
+      map.removeLayer(esri);
+      L.tileLayer("https://tile.openstreetmap.de/{z}/{x}/{y}.png",
+        {maxZoom:19, attribution:'© OpenStreetMap'}).addTo(map);
+      toast("已切換備用地圖",1600);
+    }
+  },5000);
+  L.control.zoom({position:"topright"}).addTo(map);
+  L.control.scale({position:"bottomleft",imperial:false}).addTo(map);
+  layerLine = L.layerGroup().addTo(map);
+  layerPins = L.layerGroup().addTo(map);
+  map.on("click",function(e){ addPoint("地圖選點",e.latlng.lat,e.latlng.lng,true); });
+}
+
+/* ═══════ 地址搜索 ═══════ */
+var st=null;
+function searchAddr(q){
+  if(!q||q.length<2){ hideSug(); return; }
+  clearTimeout(st);
+  st=setTimeout(function(){
+    fetch(PHOTON+"?q="+encodeURIComponent(q)+"&limit=7&lang=default&lat=25.0069&lon=121.4994")
+      .then(function(r){ return r.json(); })
+      .then(function(d){ renderSug(d.features||[]); })
+      .catch(function(){ hideSug(); });
+  },300);
+}
+function hideSug(){ document.getElementById("sug").style.display="none"; }
+function renderSug(list){
+  var box=document.getElementById("sug");
+  if(!list.length){ hideSug(); return; }
+  box.innerHTML="";
+  list.forEach(function(f){
+    var p=f.properties||{};
+    var nm=p.name||p.street||p.city||"未知地點";
+    var arr=[];
+    if(p.street&&p.street!==nm) arr.push(p.street);
+    if(p.district) arr.push(p.district);
+    if(p.city) arr.push(p.city);
+    if(p.postcode) arr.push(p.postcode);
+    var ad=arr.join(" · ")||(p.county||p.country||"");
+    var c=f.geometry.coordinates;
+    var d=document.createElement("div");
+    d.innerHTML='<div class="nm"></div><div class="ad"></div>';
+    d.querySelector(".nm").textContent=nm;
+    d.querySelector(".ad").textContent=ad;
+    d.onclick=function(){
+      addPoint(nm,c[1],c[0],false);
+      document.getElementById("addr").value=""; hideSug();
+    };
+    box.appendChild(d);
+  });
+  box.style.display="block";
+}
+
+/* ═══════ 点管理 ═══════ */
+function addPoint(name,lat,lng,silent){
+  for(var i=0;i<pts.length;i++){
+    var dy=(pts[i].lat-lat)*111320;
+    var dx=(pts[i].lng-lng)*111320*Math.cos(lat*Math.PI/180);
+    if(Math.hypot(dx,dy)<10){ toast("這個點已在清單中"); return; }
+  }
+  pts.push({name:name,lat:lat,lng:lng});
+  order=[]; route=null; plans=[];
+  render(); save();
+  if(!silent) toast("已加入 "+name,1000);
+}
+function delPoint(i){ pts.splice(i,1); order=[]; route=null; plans=[]; render(); save(); }
+
+/* ═══════ 渲染 ═══════ */
+function render(){
+  var listEl=document.getElementById("list");
+  listEl.innerHTML="";
+  var seq=(order.length===pts.length&&order.length)?order.slice():pts.map(function(_,i){return i;});
+
+  seq.forEach(function(idx,pos){
+    var p=pts[idx]; if(!p) return;
+    var isS=pos===0;
+    var div=document.createElement("div");
+    div.className="item"+(isS?" start":"");
+    div.draggable=true; div.dataset.idx=idx;
+    var leg="";
+    if(route&&route.legs&&route.legs[pos-1]){
+      var lg=route.legs[pos-1];
+      leg="↑ "+fmtDist(lg.distance)+" · "+fmtTime(lg.duration);
+    }
+    div.innerHTML='<div class="num">'+(isS?'':pos)+'</div>'+
+      '<div class="body"><div class="nm"></div><div class="meta"></div>'+
+      (leg?'<div class="leg">'+leg+'</div>':'')+
+      '</div><button class="del">×</button>';
+    div.querySelector(".nm").textContent=p.name||"未命名";
+    div.querySelector(".meta").textContent=p.lat.toFixed(5)+", "+p.lng.toFixed(5);
+    div.querySelector(".del").onclick=function(e){ e.stopPropagation(); delPoint(idx); };
+    div.addEventListener("dragstart",function(e){
+      div.classList.add("dragging"); e.dataTransfer.setData("text/plain",String(idx));
+    });
+    div.addEventListener("dragend",function(){ div.classList.remove("dragging"); });
+    div.addEventListener("dragover",function(e){ e.preventDefault(); });
+    div.addEventListener("drop",function(e){
+      e.preventDefault();
+      reorder(parseInt(e.dataTransfer.getData("text/plain"),10),idx);
+    });
+    div.onclick=function(e){
+      if(e.target.classList.contains("del")) return;
+      map.setView([p.lat,p.lng],Math.max(map.getZoom(),16));
+    };
+    listEl.appendChild(div);
+  });
+
+  drawPins(seq); drawLine(); updateStat(); renderPlans();
+}
+
+function reorder(from,to){
+  var seq=(order.length===pts.length&&order.length)?order.slice():pts.map(function(_,i){return i;});
+  var a=seq.indexOf(from), b=seq.indexOf(to);
+  if(a<0||b<0||a===b) return;
+  var it=seq.splice(a,1)[0]; seq.splice(b,0,it);
+  order=seq; route=null; plans=[];
+  render(); save(); toast("已手動調整順序",900);
+}
+
+function drawPins(seq){
+  layerPins.clearLayers();
+  seq.forEach(function(idx,pos){
+    var p=pts[idx]; if(!p) return;
+    var html = pos===0 ? '<div class="pin s">起</div>' : '<div class="pin">'+pos+'</div>';
+    var ic=L.divIcon({className:"",html:html,iconSize:[28,28],iconAnchor:[14,14]});
+    L.marker([p.lat,p.lng],{icon:ic}).addTo(layerPins)
+      .bindTooltip((pos===0?"起點":pos+". "+(p.name||"")),{direction:"top",offset:[0,-14]});
+  });
+}
+
+function drawLine(){
+  layerLine.clearLayers();
+  if(!route||!route.geometry) return;
+  var ll=route.geometry.map(function(c){ return [c[1],c[0]]; });
+  var col = plans[activePlan] ? STRATS[plans[activePlan].key].color : "#0ea5e9";
+  L.polyline(ll,{color:col,weight:7,opacity:.25,lineCap:"round"}).addTo(layerLine);
+  L.polyline(ll,{color:col,weight:3,opacity:.95,lineCap:"round"}).addTo(layerLine);
+  try{ map.fitBounds(L.latLngBounds(ll).pad(0.12)); }catch(e){}
+}
+
+function updateStat(){
+  var el=document.getElementById("stat");
+  if(route){
+    var p0=plans[activePlan];
+    var extra="";
+    if(p0 && p0.waitSignal>30) extra=" (等燈"+Math.round(p0.waitSignal/60)+"分)";
+    el.textContent=pts.length+" 點 · "+fmtDist(route.distance)+" · "+fmtTime(route.duration)+extra;
+  } else if(pts.length){
+    el.textContent=pts.length+" 個點（未計算）";
+  } else {
+    el.textContent="尚未加入地點";
+  }
+  document.getElementById("go").disabled = pts.length<2;
+  document.getElementById("badge").textContent = pts.length ? "機車 " + pts.length + "點" : "機車";
+}
+
+/* ═══════ Valhalla ═══════ */
+function decodePolyline(str, precision){
+  precision = precision||6;
+  var idx=0,lat=0,lng=0,out=[],f=Math.pow(10,precision);
+  while(idx<str.length){
+    var b,shift=0,result=0;
+    do{ b=str.charCodeAt(idx++)-63; result|=(b&0x1f)<<shift; shift+=5; } while(b>=0x20);
+    lat += (result&1)?~(result>>1):(result>>1);
+    shift=0; result=0;
+    do{ b=str.charCodeAt(idx++)-63; result|=(b&0x1f)<<shift; shift+=5; } while(b>=0x20);
+    lng += (result&1)?~(result>>1):(result>>1);
+    out.push([lng/f,lat/f]);
+  }
+  return out;
+}
+
+function vRoute(locs, cfg, avoid){
+  var body={
+    locations: locs.map(function(c){ return {lat:c.lat,lon:c.lng,type:"break"}; }),
+    costing:"motor_scooter",
+    directions_options:{ units:"kilometers", language:"zh-TW" }
+  };
+  if(cfg && Object.keys(cfg).length) body.costing_options={motor_scooter:cfg};
+  if(avoid && avoid.length){
+    body.avoid_locations = avoid.map(function(p){
+      return {lat:p.lat, lon:p.lng, radius:p.radius||100};
+    });
+  }
+  return fetch(VALHALLA+"/route",{method:"POST",
+      headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+    .then(function(r){ if(!r.ok) throw new Error("route "+r.status); return r.json(); })
+    .then(function(d){
+      if(!d.trip) throw new Error("no trip");
+      var names=[], legs=[], sig=0, turns=0;
+      d.trip.legs.forEach(function(leg){
+        legs.push({distance:leg.summary.length*1000, duration:leg.summary.time});
+        leg.maneuvers.forEach(function(m){
+          if(m.type===10||m.type===11||m.type===12) sig++;
+          if(m.type>=13&&m.type<=26) turns++;
+          (m.street_names||[]).forEach(function(x){
+            if(x && names.indexOf(x)<0) names.push(x);
+          });
+        });
+      });
+      var shape="";
+      d.trip.legs.forEach(function(l){ if(l.shape) shape+=l.shape; });
+      var s=d.trip.summary;
+      // 紅燈真實成本：依主幹道比例加權
+      var MAIN_RE=/中山|忠孝|仁愛|信義|和平|民權|民生|南京|承德|羅斯福|基隆|八德|光復|復興|建國|重慶|中華|文化|縣民|台\d|快速道路|高架|橋/;
+      var mainN=names.filter(function(n){ return MAIN_RE.test(n); }).length;
+      var mainRatio=names.length?mainN/names.length:0;
+      var perSig=25+(45-25)*mainRatio;   // 巷道25秒 / 主幹道45秒
+      var waitSig=sig*perSig;
+      return {
+        distance: s.length*1000,
+        duration: s.time + waitSig,      // 真實時間（含等紅燈）
+        engineTime: s.time,              // 引擎原始時間
+        waitSignal: waitSig,
+        geometry: shape ? decodePolyline(shape) : null,
+        legs: legs, names: names,
+        signals: sig, turns: turns,
+        alleys: names.filter(function(n){ return /\d+巷|\d+弄/.test(n); }).length
+      };
+    });
+}
+
+function getMatrix(coords){
+  var body={
+    sources: coords.map(function(c){ return {lat:c.lat,lon:c.lng}; }),
+    targets: coords.map(function(c){ return {lat:c.lat,lon:c.lng}; }),
+    costing:"motor_scooter"
+  };
+  return fetch(VALHALLA+"/sources_to_targets",{method:"POST",
+      headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(!d.sources_to_targets) throw new Error("no matrix");
+      return d.sources_to_targets.map(function(row){
+        return row.map(function(c){ return (c&&c.time!=null)?c.time:1e9; });
+      });
+    });
+}
+
+/* ═══════ TSP ═══════ */
+function heldKarp(mat,n){
+  var INF=1e18, m=n-1;
+  if(m===0) return [0];
+  var size=1<<m, dp=[], par=[];
+  for(var i=0;i<size;i++){
+    dp.push(new Float64Array(m).fill(INF));
+    par.push(new Int8Array(m).fill(-1));
+  }
+  for(var j=0;j<m;j++) dp[1<<j][j]=mat[0][j+1];
+  for(var mask=0;mask<size;mask++){
+    for(var j2=0;j2<m;j2++){
+      if(!(mask&(1<<j2))) continue;
+      var cur=dp[mask][j2];
+      if(cur>=INF) continue;
+      for(var k=0;k<m;k++){
+        if(mask&(1<<k)) continue;
+        var nm=mask|(1<<k), nd=cur+mat[j2+1][k+1];
+        if(nd<dp[nm][k]){ dp[nm][k]=nd; par[nm][k]=j2; }
+      }
+    }
+  }
+  var full=size-1, best=INF, bj=-1;
+  for(var j3=0;j3<m;j3++) if(dp[full][j3]<best){ best=dp[full][j3]; bj=j3; }
+  var seq=[], mk=full, cu=bj;
+  while(cu>=0){ seq.push(cu+1); var pv=par[mk][cu]; mk&=~(1<<cu); cu=pv; }
+  seq.reverse();
+  return [0].concat(seq);
+}
+
+function heurTSP(mat,n){
+  var used=new Array(n).fill(false); used[0]=true;
+  var seq=[0], cur=0;
+  for(var s=1;s<n;s++){
+    var bb=-1, bd=Infinity;
+    for(var i=1;i<n;i++) if(!used[i]&&mat[cur][i]<bd){ bd=mat[cur][i]; bb=i; }
+    if(bb<0) break;
+    used[bb]=true; seq.push(bb); cur=bb;
+  }
+  var imp=true,g=0;
+  while(imp&&g++<200){
+    imp=false;
+    for(var a=1;a<n-1;a++){
+      for(var b=a+1;b<n;b++){
+        var d0=mat[seq[a-1]][seq[a]]+(b+1<n?mat[seq[b]][seq[b+1]]:0);
+        var d1=mat[seq[a-1]][seq[b]]+(b+1<n?mat[seq[a]][seq[b+1]]:0);
+        if(d1<d0-0.5){
+          var seg=seq.slice(a,b+1).reverse();
+          for(var k=0;k<seg.length;k++) seq[a+k]=seg[k];
+          imp=true;
+        }
+      }
+    }
+  }
+  return seq;
+}
+
+/* ═══════ 取得目前生效的調撥路段座標 ═══════ */
+function getActiveAvoid(){
+  if (typeof activeSegments !== "function") return [];
+  var act = activeSegments(new Date());
+  if (!act.length) return [];
+  var out = [];
+  act.forEach(function(x){
+    if (x.seg.passable) return;      // 仍可走外側 → 不強制改道
+    var c = DIAOBO_COORDS[x.seg.road];
+    if (c) out.push({ road:x.seg.road, lat:c.lat, lng:c.lng, radius:90 });
+  });
+  return out;
+}
+
+/* ═══════ 主流程 ═══════ */
+function optimize(){
+  if(pts.length<2){ toast("至少要有 2 個點"); return; }
+  var go=document.getElementById("go");
+  go.disabled=true; go.textContent="計算中…";
+
+  getMatrix(pts).then(function(mat){
+    var seq = pts.length<=10 ? heldKarp(mat,pts.length) : heurTSP(mat,pts.length);
+    order=seq;
+    var ordered=seq.map(function(i){ return pts[i]; });
+
+    var avoidPts = getActiveAvoid();
+    return Promise.all(STRAT_KEYS.map(function(k){
+      return vRoute(ordered, STRATS[k].cfg)
+        .then(function(r){ return {key:k, res:r}; })
+        .catch(function(){ return {key:k, res:null}; });
+    })).then(function(arr){
+
+      // 有調撥時段 → 為每條碰到調撥的路線補一條「避開版」
+      if (avoidPts.length){
+        var needFix = arr.filter(function(x){
+          if(!x.res) return false;
+          var c = checkRouteDetail(x.res.names, new Date(), null);
+          return c.warn;
+        });
+        return Promise.all(needFix.map(function(x){
+          return vRoute(ordered, STRATS[x.key].cfg, avoidPts)
+            .then(function(r2){ return {key:x.key, res:r2, isAvoid:true, base:x.res}; })
+            .catch(function(){ return null; });
+        })).then(function(fixes){
+          fixes.forEach(function(f){
+            if(f && f.res){
+              // 用避開版取代原本那條，但保留原名稱加註記
+              f.res.avoided = true;
+              var idx = arr.findIndex(function(x){ return x.key===f.key; });
+              if(idx>=0) arr[idx] = {key:f.key, res:f.res};
+            }
+          });
+          return arr;
+        });
+      }
+      return arr;
+    }).then(function(arr){
+      plans = arr.filter(function(x){ return x.res; })
+                 .map(function(x){
+                   var dbx = (typeof checkRoute==="function")
+                     ? checkRoute(x.res.names, new Date()) : {warn:false,hits:[]};
+                   return { key:x.key, distance:x.res.distance,
+                     duration:x.res.duration,
+                     engineTime:x.res.engineTime,
+                     waitSignal:x.res.waitSignal,
+                     geometry:x.res.geometry,
+                     legs:x.res.legs, names:x.res.names,
+                     signals:x.res.signals, turns:x.res.turns,
+                     alleys:x.res.alleys,
+                     diaobo: dbx };
+                 });
+      if(!plans.length) throw new Error("全部失敗");
+      sortPlans();
+      activePlan=0;
+      applyPlan(0);
+      go.textContent="重新計算";
+      go.disabled=false;
+      document.getElementById("nav").classList.add("show");
+      var best=plans[0];
+      toast("已算出 "+plans.length+" 條路線 · 推薦「"+STRATS[best.key].label+
+            "」"+best.signals+" 個紅燈",2400);
+    });
+  }).catch(function(e){
+    console.error(e);
+    go.textContent="計算最佳路線"; go.disabled=false;
+    toast("路線計算失敗，請檢查網路",2200);
+  });
+}
+
+function sortPlans(){
+  var cur = plans[activePlan];
+  if(sortMode==="signal"){
+    // 按「真實時間」排（已含等紅燈），紅燈數少者優先
+    plans.sort(function(a,b){
+      if(a.signals!==b.signals) return a.signals-b.signals;
+      return a.duration-b.duration;
+    });
+  } else if(sortMode==="time"){
+    plans.sort(function(a,b){ return a.duration-b.duration; });
+  } else {
+    plans.sort(function(a,b){ return a.distance-b.distance; });
+  }
+  if(cur){
+    for(var i=0;i<plans.length;i++) if(plans[i].key===cur.key){ activePlan=i; break; }
+  }
+}
+
+function applyPlan(i){
+  if(!plans[i]) return;
+  activePlan=i;
+  var p=plans[i];
+  route={ distance:p.distance, duration:p.duration,
+          geometry:p.geometry, legs:p.legs };
+  render(); save();
+}
+
+function renderPlans(){
+  var box=document.getElementById("plans");
+  if(!plans.length){ box.classList.remove("show"); return; }
+  box.classList.add("show");
+  box.querySelectorAll(".plan").forEach(function(x){ x.remove(); });
+  document.getElementById("pcount").textContent = plans.length;
+  document.getElementById("sortby").textContent =
+    "排序：" + (sortMode==="signal"?"紅燈最少":sortMode==="time"?"時間最短":"距離最短");
+
+  var minSig = Math.min.apply(null, plans.map(function(p){ return p.signals; }));
+
+  // 調撥說明
+  var noteEl = document.getElementById("diaoboNote");
+  var avoidedCount = plans.filter(function(p){ return p.avoided; }).length;
+  var act = (typeof activeSegments==="function") ? activeSegments(new Date()) : [];
+  if (act.length && avoidedCount){
+    var roads = act.slice(0,3).map(function(x){ return x.seg.road; }).join("、");
+    noteEl.innerHTML = '<b>🚨 現在是調撥時段</b>（' + roads +
+      (act.length>3?" 等"+act.length+"處":"") + '）<br>' +
+      '已自動改道避開禁行路段。';
+    noteEl.classList.add("show");
+  } else if (act.length){
+    noteEl.innerHTML = '<b>🚨 現在是調撥時段</b>，但這條路線沒經過調撥路段。';
+    noteEl.classList.add("show");
+  } else {
+    noteEl.classList.remove("show");
+  }
+
+  plans.forEach(function(p,i){
+    var d=document.createElement("div");
+    d.className="plan"+(i===activePlan?" on":"")+(p.signals===minSig?" best":"");
+    var sigCls = p.signals===minSig ? "good" : (p.signals>=minSig+3 ? "bad" : "");
+    var warnHtml = '';
+    if (p.avoided) warnHtml = '<span class="avoided">✔已避調撥</span>';
+    else if (p.diaobo && p.diaobo.warn){
+      var allPass = p.diaobo.hits.every(function(x){ return x.passable; });
+      warnHtml = allPass
+        ? '<span class="caution">▲調撥·走外側</span>'
+        : '<span class="warn">⛔禁行調撥</span>';
+    }
+    d.innerHTML=
+      '<div class="tag '+(TAG_CLASS[p.key]||"a")+'"></div>'+
+      '<div class="inf"><div class="d">'+
+        '<span class="dist"></span>'+
+        '<span class="sig '+sigCls+'"></span>'+ warnHtml +
+      '</div><div class="n"></div></div>'+
+      (p.signals===minSig?'<div class="star">★</div>':'')+
+      '<div class="rad"></div>';
+    d.querySelector(".tag").textContent=STRATS[p.key].label;
+    d.querySelector(".dist").textContent=fmtDist(p.distance)+" · "+fmtTime(p.duration);
+    var sigTxt = "🚦"+p.signals;
+    if (p.waitSignal > 60) sigTxt += " 等"+Math.round(p.waitSignal/60)+"分";
+    d.querySelector(".sig").textContent=sigTxt;
+    var nm2 = (p.alleys?p.alleys+"條巷弄 · ":"")+(p.names.slice(0,3).join(" → ")||"—");
+    if (p.diaobo && p.diaobo.warn){
+      var lines = p.diaobo.hits.map(function(x){
+        var advice = (typeof adviceText==="function") ? adviceText(x) : "";
+        return x.road + "（" + x.rule.dir + "）" + advice;
+      });
+      nm2 = lines.join(" ｜ ");
+    }
+    d.querySelector(".n").textContent = nm2;
+    d.onclick=function(){ applyPlan(i); };
+    box.appendChild(d);
+  });
+}
+
+/* ═══════ 导航 ═══════ */
+function openNav(){
+  if(!route){ toast("請先計算路線"); return; }
+  var seq=(order.length===pts.length&&order.length)?order:pts.map(function(_,i){return i;});
+  var c=seq.map(function(i){ return pts[i].lat+","+pts[i].lng; });
+  var url="https://www.google.com/maps/dir/?api=1"+
+    "&origin="+c[0]+"&destination="+c[c.length-1]+
+    (c.length>2?"&waypoints="+encodeURIComponent(c.slice(1,-1).join("|")):"")+
+    "&travelmode=driving&dir_action=navigate";
+  window.open(url,"_blank");
+}
+
+/* ═══════ 定位 ═══════ */
+function locate(){
+  if(!navigator.geolocation){ toast("此裝置不支援定位"); return; }
+  toast("定位中…",4000);
+  navigator.geolocation.getCurrentPosition(function(pos){
+    var la=pos.coords.latitude, lo=pos.coords.longitude;
+    map.setView([la,lo],16);
+    if(userMarker) map.removeLayer(userMarker);
+    userMarker=L.circleMarker([la,lo],{radius:9,color:"#fff",weight:2.5,
+      fillColor:"#22c55e",fillOpacity:1}).addTo(map).bindTooltip("你在這裡",{direction:"top"});
+    if(pts.length===0){ addPoint("我的位置",la,lo,true); toast("已設為起點",1600); }
+  },function(){ toast("無法定位（需開 GPS 並允許權限）",2600); },
+  {enableHighAccuracy:true,timeout:14000,maximumAge:20000});
+}
+
+/* ═══════ 事件 ═══════ */
+function bind(){
+  var a=document.getElementById("addr");
+  a.addEventListener("input",function(){ searchAddr(a.value.trim()); });
+  a.addEventListener("keydown",function(e){
+    if(e.key==="Enter"){
+      e.preventDefault();
+      var box=document.getElementById("sug");
+      if(box.style.display==="block"&&box.firstChild) box.firstChild.click();
+      else searchAddr(a.value.trim());
+    }
+  });
+  document.getElementById("add").onclick=function(){
+    var v=a.value.trim();
+    if(!v){ toast("請先輸入地址"); return; }
+    toast("搜尋中…",2500);
+    fetch(PHOTON+"?q="+encodeURIComponent(v)+"&limit=1&lang=default&lat=25.0069&lon=121.4994")
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var f=(d.features||[])[0];
+        if(!f){ toast("找不到，試試加區名或更簡短"); return; }
+        var p=f.properties||{};
+        addPoint(p.name||p.street||v,f.geometry.coordinates[1],f.geometry.coordinates[0],false);
+        a.value=""; hideSug();
+      }).catch(function(){ toast("搜尋失敗，請檢查網路"); });
+  };
+  document.getElementById("gps").onclick=locate;
+  document.getElementById("go").onclick=optimize;
+  document.getElementById("nav").onclick=openNav;
+  document.getElementById("clear").onclick=function(){
+    if(!pts.length) return;
+    if(!confirm("確定清空所有地點？")) return;
+    pts=[]; order=[]; route=null; plans=[]; activePlan=0;
+    render(); save();
+    document.getElementById("nav").classList.remove("show");
+    document.getElementById("go").textContent="計算最佳路線";
+  };
+  document.getElementById("sortby").onclick=function(){
+    sortMode = sortMode==="signal" ? "time" : (sortMode==="time" ? "dist" : "signal");
+    if(plans.length){ sortPlans(); renderPlans(); applyPlan(activePlan); }
+    else toast("計算後才能排序",1200);
+  };
+  var sheet=document.getElementById("sheet");
+  document.getElementById("handle").onclick=function(){ sheet.classList.toggle("collapsed"); };
+  document.getElementById("map").addEventListener("click",hideSug);
+}
+
+/* ═══════ 調撥車道橫幅 ═══════ */
+function updateDiaoboBar(){
+  var bar = document.getElementById("diaoboBar");
+  if (typeof inDiaoboWindow !== "function"){ bar.classList.remove("show"); return; }
+  var now = new Date();
+  var act = inDiaoboWindow(now);
+  if (act && act.length){
+    var roads = act.slice(0,4).map(function(a){ return a.road; }).join("、");
+    var hh = ("0"+now.getHours()).slice(-2);
+    bar.innerHTML = "🚨 現在是調撥時段（"+hh+":00）<br>"+
+      '<span class="sub">機車禁行：' + roads +
+      (act.length>4?" 等"+act.length+"處":"") + "｜一般機車誤入罰 600~1800</span>";
+    bar.classList.add("show");
+  } else {
+    var tw = (typeof timeWarnText === "function") ? timeWarnText() : "";
+    if (tw){
+      bar.innerHTML = tw;
+      bar.classList.add("show");
+    } else {
+      bar.classList.remove("show");
+    }
+  }
+}
+
+/* ═══════ 启动 ═══════ */
+(function(){
+  initMap(); load(); bind(); render();
+  updateDiaoboBar();
+  setInterval(updateDiaoboBar, 60000);   // 每分钟检查
+  if(!pts.length) setTimeout(function(){ toast("輸入地址，或按 ◎ 定位自己",2800); },700);
+})();
+</script>
+</body>
+</html>
