@@ -189,30 +189,30 @@ function buildNavUI() {
     "#navui.on{display:flex}",
     "#navtop{background:#111c26;color:#e8f0f7;padding:12px 16px;",
     "border-bottom:1px solid #1e2b38;display:flex;align-items:center;gap:16px}",
-    "#navturn{font-size:46px;line-height:1;flex:0 0 auto}",
+    "#navturn{font-size:calc(46px * var(--uiScale,1.25));line-height:1;flex:0 0 auto}",
     "#navmain{flex:1;min-width:0}",
     /* 層級對調：轉彎動作最大，距離改小字放右邊 */
-    "#navtext{font-size:33px;font-weight:900;color:#fff;line-height:1.05}",
-    "#navstreet{font-size:17px;color:#9fb3c8;margin-top:3px;font-weight:700;",
+    "#navtext{font-size:calc(33px * var(--uiScale,1.25));font-weight:900;color:#fff;line-height:1.05}",
+    "#navstreet{font-size:calc(17px * var(--uiScale,1.25));color:#9fb3c8;margin-top:3px;font-weight:700;",
     "white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-    "#navdist{font-size:15px;font-weight:800;color:#4ade80;margin-top:5px;",
+    "#navdist{font-size:calc(15px * var(--uiScale,1.25));font-weight:800;color:#4ade80;margin-top:5px;",
     "letter-spacing:.5px}",
     "#navmap{flex:1;background:#1a2332;position:relative}",
     "#navbottom{background:#111c26;padding:8px 12px 10px;border-top:1px solid #1e2b38}",
-    "#navinfo{font-size:13px;color:#9fb3c8;text-align:center;padding:2px 0 8px;",
+    "#navinfo{font-size:calc(13px * var(--uiScale,1.25));color:#9fb3c8;text-align:center;padding:2px 0 8px;",
     "letter-spacing:.3px}",
-    "#navinfo b{color:#e8f0f7;font-size:15px}",
+    "#navinfo b{color:#e8f0f7;font-size:calc(15px * var(--uiScale,1.25))}",
     "#navinfo .sep{margin:0 10px;color:#3a4a5a}",
     "#navrow{display:flex;gap:10px}",
     "#navrow .navbtn{flex:1}",
-    ".navbtn{background:#1e2b38;color:#e8f0f7;border:none;border-radius:10px;min-height:48px;min-width:56px;",
-    "padding:13px 16px;font-size:14px;font-weight:700;cursor:pointer;flex:0 0 auto}",
+    ".navbtn{background:#1e2b38;color:#e8f0f7;border:none;border-radius:10px;min-height:calc(48px * var(--uiScale,1.25));min-width:56px;",
+    "padding:13px 16px;font-size:calc(14px * var(--uiScale,1.25));font-weight:700;cursor:pointer;flex:0 0 auto}",
     ".navbtn.on{background:#4ade80;color:#0f1720}",
     ".navbtn.end{background:#ef4444;color:#fff}",
     "#navnext{background:#132a20;border-top:1px solid #1e2b38;padding:9px 16px;",
-    "font-size:12.5px;color:#86efac}",
+    "font-size:calc(12.5px * var(--uiScale,1.25));color:#86efac}",
     "#navwarn{display:none;background:#7f1d1d;color:#fff;padding:9px 16px;",
-    "font-size:13px;font-weight:700;text-align:center}",
+    "font-size:calc(13px * var(--uiScale,1.25));font-weight:700;text-align:center}",
     "#navwarn.on{display:block}"
   ].join("");
   document.head.appendChild(css);
@@ -606,3 +606,12 @@ document.addEventListener("click", function (e) {
     NAV.map.setView([NAV.lastPos.lat, NAV.lastPos.lng], 17, { animate: true });
   }
 });
+
+/* ── 字體倍率變更時重繪（由 index.html 的 AA 按鈕呼叫）── */
+NAV.refreshUi = function () {
+  try {
+    if (NAV.active && NAV.map && NAV.map.invalidateSize) NAV.map.invalidateSize();
+    if (typeof redrawMarkers === "function") redrawMarkers();
+  } catch (e) {}
+};
+window.NAV = NAV;
