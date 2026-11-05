@@ -253,6 +253,63 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0f1720;
 "use strict";
 
 var VALHALLA = "https://valhalla1.openstreetmap.de";
+var OSRM = "https://router.project-osrm.org";
+
+/* ═══════ 備援引擎：公開 Valhalla 常被限流，掛了要能改走 OSRM ═══════
+   注意：OSRM 只有 driving（汽車）模型，沒有機車專用道概念，
+   所以只在 Valhalla 完全失敗時當救命用，並在畫面上明說。 */
+function routeFallbackOSRM(locs){
+  var coords = locs.map(function(c){ return c.lng + "," + c.lat; }).join(";");
+  var url = OSRM + "/route/v1/driving/" + coords +
+            "?overview=full&geometries=polyline6&steps=true&language=zh-TW";
+  return fetch(url).then(function(r){
+    if(!r.ok) throw new Error("osrm " + r.status);
+    return r.json();
+  }).then(function(d){
+    if(!d.routes || !d.routes.length) throw new Error("osrm no route");
+    var route = d.routes[0];
+    var geo = decodePolyline(route.geometry);
+    var names = [], turns = 0;
+    var maneuvers = [];
+    var cum = 0;
+    route.legs.forEach(function(leg){
+      leg.steps.forEach(function(st){
+        turns++;
+        if(st.name && names.indexOf(st.name) < 0) names.push(st.name);
+      });
+    });
+    // 轉成 App 內部 maneuver 格式（讓內建導航能用）
+    var idxGeo = 0, acc = 0;
+    route.legs.forEach(function(leg){
+      leg.steps.forEach(function(st, si){
+        acc += st.distance;
+        maneuvers.push({
+          type: st.maneuver && st.maneuver.type ? 10 : 10,
+          text: (st.maneuver && st.maneuver.modifier) ? ("往" + st.maneuver.modifier) : "直行",
+          street: st.name || "",
+          length: st.distance,
+          cumStart: acc - st.distance,
+          lat: (st.maneuver && st.maneuver.location) ? st.maneuver.location[1] : null,
+          lng: (st.maneuver && st.maneuver.location) ? st.maneuver.location[0] : null
+        });
+      });
+    });
+    return {
+      distance: route.distance,
+      duration: route.duration,
+      engineTime: route.duration,
+      waitSignal: 0,
+      geometry: geo,
+      legs: route.legs.map(function(l){ return {distance: l.distance, duration: l.duration}; }),
+      names: names,
+      maneuvers: maneuvers,
+      signals: 0,
+      turns: turns,
+      alleys: names.filter(function(n){ return /\d+巷|\d+弄/.test(n); }).length,
+      engine: "osrm"
+    };
+  });
+}
 var PHOTON   = "https://photon.komoot.io/api/";
 var LS_KEY   = "moto_route_v3";
 
@@ -673,7 +730,12 @@ function optimize(){
     return Promise.all(STRAT_KEYS.map(function(k){
       return vRoute(ordered, STRATS[k].cfg)
         .then(function(r){ return {key:k, res:r}; })
-        .catch(function(){ return {key:k, res:null}; });
+        .catch(function(){
+          // ★ Valhalla 掛了（公開服務限流/斷線）→ 改走 OSRM 備援，至少還能算出路
+          return routeFallbackOSRM(ordered)
+            .then(function(r){ return {key:k, res:r, fallback:true}; })
+            .catch(function(){ return {key:k, res:null}; });
+        });
     })).then(function(arr){
 
       // 有調撥時段 → 為每條碰到調撥的路線補一條「避開版」
@@ -714,6 +776,7 @@ function optimize(){
                      signals:x.res.signals, turns:x.res.turns,
                      alleys:x.res.alleys,
                      maneuvers: x.res.maneuvers || [],
+                     fallback: !!x.res.fallbackEngine || x.res.engine === "osrm",
                      diaobo: dbx };
                  });
       if(!plans.length) throw new Error("全部失敗");
@@ -725,8 +788,13 @@ function optimize(){
       go.disabled=false;
       document.getElementById("nav").classList.add("show");
       var best=plans[0];
-      toast("已算出 "+plans.length+" 條路線 · 推薦「"+STRATS[best.key].label+
-            "」· "+best.signals+" 個路口",2400);
+      // ★ 備援引擎要講清楚，不能讓人以為是機車專用路線
+      if(best.fallback){
+        toast("⚠️ 機車引擎忙碌，已改用汽車路線（可能避開機車可走的小巷）",5200);
+      } else {
+        toast("已算出 "+plans.length+" 條路線 · 推薦「"+STRATS[best.key].label+
+              "」· "+best.signals+" 個路口",2400);
+      }
     });
   }).catch(function(e){
     console.error(e);
