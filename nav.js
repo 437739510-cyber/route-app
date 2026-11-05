@@ -21,8 +21,19 @@ var NAV = {
 };
 
 /* ── 語音播報 ── */
+/* 優先用 APK 內的原生 TTS（WebView 的 speechSynthesis 在安卓常失效）*/
+function nativeTTS() {
+  try {
+    if (window.AndroidTTS && typeof window.AndroidTTS.speak === "function"
+        && window.AndroidTTS.ready()) return window.AndroidTTS;
+  } catch (e) {}
+  return null;
+}
+
 function speak(text) {
   if (!NAV.voiceOn) return;
+  var nat = nativeTTS();
+  if (nat) { try { nat.speak(text); return; } catch (e) {} }
   if (!window.speechSynthesis) return;
   try {
     speechSynthesis.cancel();
@@ -44,6 +55,7 @@ function speak(text) {
    若沒解鎖，導航全程不會出声。這裡在第一次點任何地方時解鎖。 */
 function unlockSpeech() {
   if (NAV.speechUnlocked) return;
+  if (nativeTTS()) { NAV.speechUnlocked = true; return; }  // 原生 TTS 不需解鎖
   try {
     var u = new SpeechSynthesisUtterance(" ");
     u.volume = 0;
