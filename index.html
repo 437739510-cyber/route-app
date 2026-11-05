@@ -134,6 +134,20 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0f1720;
   box-shadow:inset 0 0 0 3px #0f2a3a}
 .plan .star{font-size:9px;color:#22c55e;font-weight:700;flex:0 0 auto}
 
+#chkmodal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);
+  z-index:9500;align-items:center;justify-content:center;padding:18px}
+#chkmodal.show{display:flex}
+#chkbox{background:#111c26;border:1px solid #1e2b38;border-radius:14px;
+  max-width:360px;width:100%;padding:14px 16px;color:#dbe7f3;
+  max-height:72vh;overflow:auto}
+#chkt{font-size:15px;font-weight:800;margin-bottom:8px;color:#fff}
+.chkrow{display:flex;justify-content:space-between;gap:12px;padding:7px 0;
+  border-bottom:1px solid #17222e;font-size:12px;line-height:1.45}
+.chkrow b{font-weight:700;color:#9fb3c8;flex:0 0 auto}
+.chkrow span{text-align:right;color:#e8f0f7}
+.chkrow span.warn{color:#fbbf24}
+.chkrow span.bad{color:#f87171}
+#chkbtns{display:flex;gap:8px;margin-top:12px}
 #toast{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);
   background:rgba(10,18,26,.96);border:1px solid #2b3a4a;color:#e8eef5;
   padding:11px 19px;border-radius:12px;font-size:13px;z-index:2000;
@@ -206,12 +220,23 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0f1720;
   </div>
 
   <div id="actions">
+    <button class="btn" id="chk" style="flex:0 0 auto">🔧</button>
     <button class="btn" id="clear">清除</button>
     <button class="btn" id="go">計算最佳路線</button>
     <button class="btn" id="nav">開始導航</button>
   </div>
 </div>
 
+<div id="chkmodal">
+  <div id="chkbox">
+    <div id="chkt">🔧 手機自檢</div>
+    <div id="chkrows"></div>
+    <div id="chkbtns">
+      <button class="btn" id="chkspeak">🔊 試唸一句</button>
+      <button class="btn" id="chkclose">關閉</button>
+    </div>
+  </div>
+</div>
 <div id="toast"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -933,6 +958,94 @@ function updateDiaoboBar(){
   if(!pts.length) setTimeout(function(){ toast("輸入地址，或按 ◎ 定位自己",2800); },700);
 })();
 </script>
+<script>
+/* ═══════ 手機自檢面板 ═══════ */
+(function(){
+  var btn=document.getElementById("chk");
+  var modal=document.getElementById("chkmodal");
+  var rows=document.getElementById("chkrows");
+  if(!btn||!modal) return;
+
+  function row(k,v,cls){
+    return '<div class="chkrow"><b>'+k+'</b><span class="'+(cls||"")+'">'+v+'</span></div>';
+  }
+
+  function runCheck(){
+    rows.innerHTML='<div class="chkrow"><b>檢測中…</b><span>請開 GPS 並保持畫面</span></div>';
+    var html=[];
+    var ua=navigator.userAgent;
+    var brand="未知";
+    if(/Xiaomi|Redmi|MI /i.test(ua)) brand="Xiaomi/Redmi";
+    else if(/Pixel|Google/i.test(ua)) brand="Google Pixel";
+    else if(/SM-|Samsung/i.test(ua)) brand="Samsung";
+    else if(/HUAWEI|HarmonyOS/i.test(ua)) brand="Huawei";
+    html.push(row("手機品牌",brand));
+    html.push(row("系統",/Android\s([\d.]+)/i.test(ua)?("Android "+ua.match(/Android\s([\d.]+)/i)[1]):(ua.indexOf("iPhone")>=0?"iOS":(ua.indexOf("Mac")>=0?"macOS":"其他"))));
+    html.push(row("瀏覽器",ua.indexOf("Chrome/")>=0&&ua.indexOf("Edg/")<0?("Chrome "+(ua.match(/Chrome\/([\d.]+)/)||[0,"?"])[1]):"其他"));
+    html.push(row("微信內浏览器",/MicroMessenger/i.test(ua)?"⚠️ 是，建議用外部浏览器開":"否 ✅",""));
+    html.push(row("觸控點數",navigator.maxTouchPoints||1));
+    html.push(row("螢幕",screen.width+"×"+screen.height+" @"+(devicePixelRatio||1)+"x"));
+
+    // 能力
+    var cap=[];
+    cap.push(['GPS定位', !!navigator.geolocation]);
+    cap.push(['語音TTS', !!window.speechSynthesis]);
+    cap.push(['螢幕常亮', !!navigator.wakeLock]);
+    cap.push(['震動', !!navigator.vibrate]);
+    cap.push(['離線執行緒', !!window.Worker]);
+    cap.forEach(function(c){ html.push(row(c[0], c[1]?"支援 ✅":"不支援 ❌", c[1]?"":"bad")); });
+
+    // 網路狀態
+    var online = navigator.onLine!==false;
+    html.push(row("目前網路", online?"在線 ✅":"斷線 ⚠️", online?"":"warn"));
+
+    // TTS 语音列表（中文）
+    try{
+      var vs=speechSynthesis.getVoices();
+      var zh=vs.filter(function(v){return /^zh/i.test(v.lang);});
+      html.push(row("語音包", vs.length? (zh.length? ("中文 "+zh.length+" 個 ✅ ("+(zh[0].name||"").slice(0,18)+")") : "只有英文 "+vs.length+" 個 ⚠️") : "讀取中…再按一次", zh.length?"":(vs.length?"warn":"warn")));
+    }catch(e){ html.push(row("語音包","讀取失敗 ❌","bad")); }
+
+    rows.innerHTML=html.join("");
+
+    // 精度實測（12 秒取樣）
+    if(!navigator.geolocation){ rows.insertAdjacentHTML("beforeend", row("GPS精度實測","無定位 API ❌","bad")); return; }
+    rows.insertAdjacentHTML("beforeend", '<div class="chkrow" id="gpsrow"><b>GPS精度</b><span id="gpsv">實測中 0/5…</span></div>');
+    var accs=[], cnt=0, w=navigator.geolocation.watchPosition(function(p){
+      cnt++; accs.push(p.coords.accuracy);
+      var best=Math.min.apply(null,accs), avg=Math.round(accs.reduce(function(a,b){return a+b},0)/accs.length);
+      var el=document.getElementById("gpsv");
+      if(el) el.textContent="第"+cnt+"次 ±"+Math.round(p.coords.accuracy)+"m (最佳 ±"+Math.round(best)+"m)";
+      if(cnt>=5){
+        navigator.geolocation.clearWatch(w);
+        var grade = best<=10?"導航級 ✅":(best<=30?"可用 ⚠️":"飄移 ❌ 建議到空旷處再測");
+        var cls = best<=10?"":(best<=30?"warn":"bad");
+        if(el){ el.textContent="最佳 ±"+Math.round(best)+"m · 平均 ±"+avg+"m → "+grade; el.className=cls; }
+      }
+    }, function(err){
+      var el=document.getElementById("gpsv");
+      if(el){ el.textContent="失敗："+err.message+"（檢查定位權限）"; el.className="bad"; }
+      navigator.geolocation.clearWatch(w);
+    }, {enableHighAccuracy:true, maximumAge:0, timeout:15000});
+  }
+
+  btn.onclick=function(){ modal.classList.add("show"); runCheck(); };
+  document.getElementById("chkclose").onclick=function(){ modal.classList.remove("show"); };
+  document.getElementById("chkspeak").onclick=function(){
+    try{
+      var u=new SpeechSynthesisUtterance("前方五十公尺，右轉進入中正路");
+      u.lang="zh-TW"; u.rate=0.95;
+      var vs=speechSynthesis.getVoices();
+      for(var i=0;i<vs.length;i++){ if(/^zh/i.test(vs[i].lang)){ u.voice=vs[i]; break; } }
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+      toast("正在唸…（沒聲=小米 TTS 未開或選錯引擎）",3000);
+    }catch(e){ toast("唸錯："+e.message,2500); }
+  };
+  modal.addEventListener("click",function(e){ if(e.target===modal) modal.classList.remove("show"); });
+})();
+</script>
+
 <script>
 /* 註冊 Service Worker（讓 App 可安裝、可離線開） */
 if ("serviceWorker" in navigator) {
