@@ -1042,18 +1042,33 @@ function updateDiaoboBar(){
     // 精度實測（12 秒取樣）
     if(!navigator.geolocation){ rows.insertAdjacentHTML("beforeend", row("GPS精度實測","無定位 API ❌","bad")); return; }
     rows.insertAdjacentHTML("beforeend", '<div class="chkrow" id="gpsrow"><b>GPS精度</b><span id="gpsv">實測中 0/5…</span></div>');
-    var accs=[], cnt=0, w=navigator.geolocation.watchPosition(function(p){
+    var accs=[], cnt=0, done=false;
+    // ★ 20 秒兜底：收不到卫星也要给结论，不能让面板永远停在 0/5（看起来像卡死）
+    var deadline=setTimeout(function(){
+      if(done) return;
+      done=true;
+      try{ navigator.geolocation.clearWatch(w); }catch(e){}
+      var el=document.getElementById("gpsv");
+      if(el){
+        var txt = cnt ? ("只拿到 "+cnt+" 次（±"+Math.round(Math.min.apply(null,accs))+"m 起）→ 室內訊號弱，到戶外再測")
+                      : "20 秒內拿不到定位 → 室內正常，到戶外再測，或檢查定位權限";
+        el.textContent=txt; el.className="warn";
+      }
+    },20000);
+    var w=navigator.geolocation.watchPosition(function(p){
       cnt++; accs.push(p.coords.accuracy);
       var best=Math.min.apply(null,accs), avg=Math.round(accs.reduce(function(a,b){return a+b},0)/accs.length);
       var el=document.getElementById("gpsv");
       if(el) el.textContent="第"+cnt+"次 ±"+Math.round(p.coords.accuracy)+"m (最佳 ±"+Math.round(best)+"m)";
       if(cnt>=5){
+        done=true; clearTimeout(deadline);
         navigator.geolocation.clearWatch(w);
         var grade = best<=10?"導航級 ✅":(best<=30?"可用 ⚠️":"飄移 ❌ 建議到空旷處再測");
         var cls = best<=10?"":(best<=30?"warn":"bad");
         if(el){ el.textContent="最佳 ±"+Math.round(best)+"m · 平均 ±"+avg+"m → "+grade; el.className=cls; }
       }
     }, function(err){
+      done=true; clearTimeout(deadline);
       var el=document.getElementById("gpsv");
       if(el){ el.textContent="失敗："+err.message+"（檢查定位權限）"; el.className="bad"; }
       navigator.geolocation.clearWatch(w);
