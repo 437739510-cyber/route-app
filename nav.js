@@ -501,18 +501,31 @@ function updateNavUI() {
   var cur = ms[Math.min(NAV.idx, ms.length - 1)];
   var next = ms[NAV.idx + 1];
 
-  var icon = turnIcon(cur.type);
-  document.getElementById("navturn").textContent = icon;
-
   var distToNext = cur.length;
-  // 第一段（出发）不显示「現在」，改显示到下一個轉彎的距離
-  if (cur.type === 1 || cur.type === 2 || cur.type === 3) {
-    var nx0 = ms[NAV.idx + 1];
-    if (nx0) distToNext = cur.length + nx0.length;
+  var showText = cur.text, showStreet = cur.street || "";
+  var showIcon = turnIcon(cur.type);
+
+  // 出發/直行等「沒有指令價值」的段落 → 往前找第一個真正要做的動作
+  var NO_INFO = [1,2,3,7,8,21,22];
+  if (NO_INFO.indexOf(cur.type) >= 0) {
+    for (var j = NAV.idx + 1; j < Math.min(NAV.idx + 4, ms.length); j++) {
+      var nx = ms[j];
+      if (NO_INFO.indexOf(nx.type) < 0 && nx.type !== 4 && nx.type !== 5 && nx.type !== 6) {
+        // 累加：從目前位置到那個動作點的全部長度
+        distToNext = 0;
+        for (var q2 = NAV.idx; q2 <= j; q2++) distToNext += ms[q2].length;
+        showText = nx.text;
+        showStreet = nx.street || "";
+        showIcon = turnIcon(nx.type);
+        break;
+      }
+    }
   }
+
   document.getElementById("navdist").textContent = humanDist(distToNext);
-  document.getElementById("navtext").textContent = cur.text;
-  document.getElementById("navstreet").textContent = cur.street || "";
+  document.getElementById("navtext").textContent = showText;
+  document.getElementById("navstreet").textContent = showStreet;
+  document.getElementById("navturn").textContent = showIcon;
 
   document.getElementById("navnext").textContent = next
     ? "下一步：" + next.text + (next.street ? " → " + next.street : "")
