@@ -494,12 +494,18 @@ function decodePolyline(str, precision){
   var idx=0,lat=0,lng=0,out=[],f=Math.pow(10,precision);
   while(idx<str.length){
     var b,shift=0,result=0;
-    do{ b=str.charCodeAt(idx++)-63; result|=(b&0x1f)<<shift; shift+=5; } while(b>=0x20);
+    do{ b=str.charCodeAt(idx++)-63; result|=(b&0x1f)<<shift; shift+=5;
+        if(shift>30) break; } while(b>=0x20);
     lat += (result&1)?~(result>>1):(result>>1);
     shift=0; result=0;
-    do{ b=str.charCodeAt(idx++)-63; result|=(b&0x1f)<<shift; shift+=5; } while(b>=0x20);
+    do{ b=str.charCodeAt(idx++)-63; result|=(b&0x1f)<<shift; shift+=5;
+        if(shift>30) break; } while(b>=0x20);
     lng += (result&1)?~(result>>1):(result>>1);
-    out.push([lat/f, lng/f]);   // Leaflet 用 [lat, lng]
+    var la=lat/f, lo=lng/f;
+    // ★ 防呆：台灣範圍外的點視為解碼錯誤，直接丟棄（避免一條線畫到太平洋）
+    if(isFinite(la)&&isFinite(lo)&&la>20&&la<27&&lo>117&&lo<123.5){
+      out.push([la, lo]);   // Leaflet 用 [lat, lng]
+    }
   }
   return out;
 }
