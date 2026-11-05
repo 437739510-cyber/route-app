@@ -261,7 +261,7 @@ var OSRM = "https://router.project-osrm.org";
 function routeFallbackOSRM(locs){
   var coords = locs.map(function(c){ return c.lng + "," + c.lat; }).join(";");
   var url = OSRM + "/route/v1/driving/" + coords +
-            "?overview=full&geometries=polyline6&steps=true&language=zh-TW";
+            "?overview=full&geometries=polyline6&steps=true";
   return fetch(url).then(function(r){
     if(!r.ok) throw new Error("osrm " + r.status);
     return r.json();
