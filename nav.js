@@ -12,6 +12,8 @@ var NAV = {
   offCourse: 0,       // 連續偏離次數
   voiceOn: true,
   spoken: {},         // 已播報過的索引
+  speechUnlocked: false,
+  wakeLock: null,
   map: null,
   lineLayer: null,
   meMarker: null,
@@ -37,6 +39,39 @@ function speak(text) {
     speechSynthesis.speak(u);
   } catch (e) { /* 忽略 */ }
 }
+
+/* Android/iOS 瀏覽器規定：語音要有「使用者動作」才能啟動。
+   若沒解鎖，導航全程不會出声。這裡在第一次點任何地方時解鎖。 */
+function unlockSpeech() {
+  if (NAV.speechUnlocked) return;
+  try {
+    var u = new SpeechSynthesisUtterance(" ");
+    u.volume = 0;
+    speechSynthesis.speak(u);
+    NAV.speechUnlocked = true;
+  } catch (e) {}
+}
+["touchstart", "click", "keydown"].forEach(function (ev) {
+  document.addEventListener(ev, unlockSpeech, { passive: true, once: false });
+});
+
+/* 螢幕常亮：導航中不能讓手機睡屏 */
+function keepAwakeOn() {
+  if (!navigator.wakeLock) return;
+  navigator.wakeLock.request("screen").then(function (wl) {
+    NAV.wakeLock = wl;
+    wl.addEventListener("release", function () {
+      // 被系統切走會自動釋放，回來時重新要
+      if (NAV.active) setTimeout(keepAwakeOn, 1000);
+    });
+  }).catch(function () {});
+}
+function keepAwakeOff() {
+  if (NAV.wakeLock) { try { NAV.wakeLock.release(); } catch (e) {} NAV.wakeLock = null; }
+}
+document.addEventListener("visibilitychange", function () {
+  if (!document.hidden && NAV.active) keepAwakeOn();
+});
 
 /* ── 轉彎指令轉中文（依 Valhalla 實測 type 對照）── */
 var TURN_TEXT = {
@@ -198,13 +233,44 @@ function buildNavUI() {
     '  <div id="navinfo">剩 <b>—</b><span class="sep">·</span><span id="naveta">—</span></div>',
     '  <div id="navrow">',
     '    <button class="navbtn on" id="btnVoice">🔊 語音</button>',
-    '    <button class="navbtn" id="btnReroute">🔄 重算</button>',
     '    <button class="navbtn" id="btnRecenter">◎ 回正</button>',
     '    <button class="navbtn end" id="btnEnd">結束</button>',
     "  </div>",
     "</div>"
   ].join("");
   document.body.appendChild(d);
+}
+
+/* ── 重畫起終點/轉彎點標記 ── */
+function redrawMarkers(res) {
+  if (!NAV.map) return;
+  (NAV.markers || []).forEach(function (m) { NAV.map.removeLayer(m); });
+  NAV.markers = [];
+  var g = res.geometry || [];
+  if (!g.length) return;
+  NAV.markers.push(L.circleMarker(g[0], { radius: 9, color: "#fff", weight: 3,
+    fillColor: "#3b82f6", fillOpacity: 1 }).addTo(NAV.map));
+  NAV.markers.push(L.circleMarker(g[g.length - 1], { radius: 9, color: "#fff", weight: 3,
+    fillColor: "#ef4444", fillOpacity: 1 }).addTo(NAV.map));
+  (res.maneuvers || []).forEach(function (m) {
+    if (m.lat == null || m.type === 1 || m.type === 4 || m.type === 5 || m.type === 6) return;
+    NAV.markers.push(L.circleMarker([m.lat, m.lng], { radius: 5, color: "#0f1720",
+      weight: 2, fillColor: "#fbbf24", fillOpacity: 1 }).addTo(NAV.map));
+  });
+}
+
+/* ── 調撥车道語音預警（不用看螢幕）── */
+function warnDiaoboOnRoute(names) {
+  if (typeof checkRouteDetail !== "function") return;
+  var res = checkRouteDetail(names, new Date(), null);
+  if (!res.warn) return;
+  var msg = res.hits.map(function (h) {
+    return h.road + "有調撥車道，" + (h.passable ? "走外側" : "禁行請改道");
+  }).join("，");
+  setTimeout(function () {
+    speak("注意，" + msg);
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+  }, 1800);
 }
 
 /* ── 開始導航 ── */
@@ -229,6 +295,7 @@ function startNav(routeData, tripRaw) {
   NAV.cfg = routeData.cfg || {};
 
   document.getElementById("navui").classList.add("on");
+  keepAwakeOn();                      // 導航中螢幕不睡
 
   // 導航專用地圖
   if (NAV.map) { NAV.map.remove(); NAV.map = null; }
@@ -243,6 +310,10 @@ function startNav(routeData, tripRaw) {
     maxZoom: 19
   }).addTo(NAV.map);
 
+  // 記錄「使用者自己拖過地圖」的時間點 → 10 秒後才恢復自動跟隨
+  NAV.map.on("dragstart", function () { NAV.manualPanAt = Date.now(); });
+  NAV.map.on("zoomstart", function () { NAV.manualPanAt = Date.now(); });
+
   // 畫路線
   if (routeData.geometry && routeData.geometry.length) {
     NAV.lineLayer = L.polyline(routeData.geometry, {
@@ -250,24 +321,11 @@ function startNav(routeData, tripRaw) {
     }).addTo(NAV.map);
 
     // 起點 / 終點 / 轉彎點標記
-    var g = routeData.geometry;
-    var start = g[0], end = g[g.length - 1];
-    L.circleMarker(start, { radius: 9, color: "#fff", weight: 3,
-      fillColor: "#3b82f6", fillOpacity: 1 }).addTo(NAV.map)
-      .bindTooltip("起點", { permanent: false });
-    L.circleMarker(end, { radius: 9, color: "#fff", weight: 3,
-      fillColor: "#ef4444", fillOpacity: 1 }).addTo(NAV.map)
-      .bindTooltip("終點", { permanent: false });
-
-    // 每個轉彎點畫小圓點，方便看出「這裡要轉」
-    (routeData.maneuvers || []).forEach(function (m) {
-      if (m.lat == null || m.type === 1 || m.type === 4 || m.type === 5 || m.type === 6) return;
-      L.circleMarker([m.lat, m.lng], { radius: 5, color: "#0f1720", weight: 2,
-        fillColor: "#fbbf24", fillOpacity: 1 }).addTo(NAV.map)
-        .bindTooltip(m.text + (m.street ? " " + m.street : ""), { permanent: false });
-    });
+    NAV.markers = [];
+    redrawMarkers(routeData);
 
     NAV.map.fitBounds(NAV.lineLayer.getBounds(), { padding: [50, 50] });
+    NAV.manualPanAt = 0;
   }
 
   // GPS 跟隨
@@ -283,6 +341,7 @@ function startNav(routeData, tripRaw) {
 
   updateNavUI();
   speak("開始導航");
+  warnDiaoboOnRoute(routeData.names || []);
 }
 
 /* ── 導航中：位置更新 ── */
@@ -301,8 +360,10 @@ function onNavPos(pos) {
     NAV.meMarker.setLatLng([la, lo]);
   }
 
-  // 地圖跟隨（保持我在下方 1/3）
-  NAV.map.setView([la, lo], Math.max(NAV.map.getZoom(), 17), { animate: true });
+  // 地圖跟隨：若使用者拖過地圖，10 秒後自動跟回（不必再按按鈕）
+  if (Date.now() - (NAV.manualPanAt || 0) > 10000) {
+    NAV.map.setView([la, lo], Math.max(NAV.map.getZoom(), 17), { animate: true });
+  }
 
   if (!NAV.route || !NAV.route.maneuvers) return;
   var ms = NAV.route.maneuvers;
@@ -338,11 +399,11 @@ function onNavPos(pos) {
     }
     if (near > 80 && acc < 35) {
       NAV.offCourse = (NAV.offCourse || 0) + 1;
-      // 連續 5 次（約 5~10 秒）偏離 → 自動重算；最多試 3 次避免無限迴圈
-      if (NAV.offCourse >= 5 && !NAV.rerouting && (NAV.rerouteTries || 0) < 3) {
+      // 連續 8 次（約 15~25 秒騎車時間）偏離才重算 → 避開路口繞攤販/等紅燈的誤判
+      if (NAV.offCourse >= 8 && !NAV.rerouting && (NAV.rerouteTries || 0) < 3) {
         NAV.rerouteTries = (NAV.rerouteTries || 0) + 1;
         doReroute(la, lo);
-      } else if (NAV.offCourse >= 5 && (NAV.rerouteTries || 0) >= 3) {
+      } else if (NAV.offCourse >= 8 && (NAV.rerouteTries || 0) >= 3) {
         showNavWarn("⚠️ 無法自動重算，請手動選路線");
       }
     } else {
@@ -409,7 +470,16 @@ function doReroute(la, lo) {
       fillColor: "#ef4444", fillOpacity: 1
     }).addTo(NAV.map);
 
+    // 套用到外部 route（結束導航後列表仍一致）
+    if (typeof route !== "undefined" && route) {
+      route.geometry = res.geometry;
+      route.maneuvers = res.maneuvers;
+      route.distance = res.distance;
+      route.duration = res.duration;
+    }
+
     hideNavWarn();
+    redrawMarkers(res);
     updateNavUI();
     speak("已重新規劃，" + (res.maneuvers[1] ? res.maneuvers[1].text : "繼續前行"));
 
@@ -491,6 +561,7 @@ function haversine(lat1, lon1, lat2, lon2) {
 /* ── 結束導航 ── */
 function endNav() {
   NAV.active = false;
+  keepAwakeOff();
   if (NAV.watchId != null) {
     navigator.geolocation.clearWatch(NAV.watchId);
     NAV.watchId = null;
@@ -516,11 +587,7 @@ document.addEventListener("click", function (e) {
     if (NAV.voiceOn) speak("語音已開啟");
   }
   if (t.id === "btnRecenter" && NAV.lastPos) {
+    NAV.manualPanAt = 0;             // 取消 10 秒等待，立刻跟回
     NAV.map.setView([NAV.lastPos.lat, NAV.lastPos.lng], 17, { animate: true });
-  }
-  if (t.id === "btnReroute") {
-    if (!NAV.lastPos) { toast("還沒定位到，稍等幾秒再按", 2200); return; }
-    NAV.offCourse = 2;               // 讓它通過判斷
-    doReroute(NAV.lastPos.lat, NAV.lastPos.lng);
   }
 });
