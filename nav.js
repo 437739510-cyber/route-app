@@ -331,9 +331,9 @@ function startNav(routeData, tripRaw) {
     // ★ 不要一次縮到看完整條路線（7 公里路線會縮到看不見街道）
     // 改成：定位到人車附近、街道級縮放；只有拿不到 GPS 才顯示全線
     if (NAV.lastPos) {
-      NAV.map.setView([NAV.lastPos.lat, NAV.lastPos.lng], 17, { animate: false });
+      NAV.map.setView([NAV.lastPos.lat, NAV.lastPos.lng], 16, { animate: false });
     } else if (g0.length) {
-      NAV.map.setView(g0[0], 17, { animate: false });
+      NAV.map.setView(g0[0], 16, { animate: false });
     } else {
       NAV.map.fitBounds(NAV.lineLayer.getBounds(), { padding: [50, 50] });
     }
@@ -374,7 +374,7 @@ function onNavPos(pos) {
 
   // 地圖跟隨：若使用者拖過地圖，10 秒後自動跟回（不必再按按鈕）
   if (Date.now() - (NAV.manualPanAt || 0) > 10000) {
-    NAV.map.setView([la, lo], Math.max(NAV.map.getZoom(), 17), { animate: true });
+    if (NAV.map.getZoom() < 15) NAV.map.setView([la, lo], 16, { animate: true });
   }
 
   if (!NAV.route || !NAV.route.maneuvers) return;
