@@ -232,6 +232,25 @@ function startNav(routeData, tripRaw) {
     NAV.lineLayer = L.polyline(routeData.geometry, {
       color: "#4ade80", weight: 7, opacity: 0.95, lineCap: "round"
     }).addTo(NAV.map);
+
+    // 起點 / 終點 / 轉彎點標記
+    var g = routeData.geometry;
+    var start = g[0], end = g[g.length - 1];
+    L.circleMarker(start, { radius: 9, color: "#fff", weight: 3,
+      fillColor: "#3b82f6", fillOpacity: 1 }).addTo(NAV.map)
+      .bindTooltip("起點", { permanent: false });
+    L.circleMarker(end, { radius: 9, color: "#fff", weight: 3,
+      fillColor: "#ef4444", fillOpacity: 1 }).addTo(NAV.map)
+      .bindTooltip("終點", { permanent: false });
+
+    // 每個轉彎點畫小圓點，方便看出「這裡要轉」
+    (routeData.maneuvers || []).forEach(function (m) {
+      if (m.lat == null || m.type === 1 || m.type === 4 || m.type === 5 || m.type === 6) return;
+      L.circleMarker([m.lat, m.lng], { radius: 5, color: "#0f1720", weight: 2,
+        fillColor: "#fbbf24", fillOpacity: 1 }).addTo(NAV.map)
+        .bindTooltip(m.text + (m.street ? " " + m.street : ""), { permanent: false });
+    });
+
     NAV.map.fitBounds(NAV.lineLayer.getBounds(), { padding: [50, 50] });
   }
 
@@ -328,6 +347,11 @@ function updateNavUI() {
   document.getElementById("navturn").textContent = icon;
 
   var distToNext = cur.length;
+  // 第一段（出发）不显示「現在」，改显示到下一個轉彎的距離
+  if (cur.type === 1 || cur.type === 2 || cur.type === 3) {
+    var nx0 = ms[NAV.idx + 1];
+    if (nx0) distToNext = cur.length + nx0.length;
+  }
   document.getElementById("navdist").textContent = humanDist(distToNext);
   document.getElementById("navtext").textContent = cur.text;
   document.getElementById("navstreet").textContent = cur.street || "";
