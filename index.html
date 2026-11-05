@@ -143,6 +143,25 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0f1720;
 #chkmodal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);
   z-index:9500;align-items:center;justify-content:center;padding:18px}
 #chkmodal.show{display:flex}
+
+/* 離線地圖面板 */
+#offPanel{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);
+  z-index:9600;align-items:center;justify-content:center;padding:16px}
+#offPanel.show{display:flex}
+#offBox{background:#111c26;border:1px solid #243342;border-radius:14px;
+  max-width:400px;width:100%;padding:16px;color:#dbe7f3;font-size:0.875rem}
+#offT{font-size:1rem;font-weight:800;color:#fff;margin-bottom:4px}
+#offSub{font-size:0.75rem;color:#7a8ca0;margin-bottom:12px;line-height:1.45}
+#offRegion{width:100%;padding:11px 12px;border-radius:10px;background:#0e1720;
+  color:#e8eef5;border:1px solid #2b3a4a;font-size:0.875rem;margin-bottom:10px}
+#offStored{font-size:0.8125rem;color:#7dd3fc;margin-bottom:8px}
+#offBarWrap{height:10px;border-radius:5px;background:#1a2836;overflow:hidden;margin-bottom:6px}
+#offBar{height:100%;width:0;background:linear-gradient(90deg,#0ea5e9,#22c55e);transition:width .25s}
+#offTxt{font-size:0.8125rem;color:#94a3b8;margin-bottom:12px;font-variant-numeric:tabular-nums}
+#offBtns{display:flex;gap:8px;margin-bottom:10px}
+#offBtns .btn{padding:13px 8px;font-size:0.875rem}
+#offNote{font-size:0.6875rem;color:#6b7d90;line-height:1.5;
+  border-top:1px solid #1c2836;padding-top:9px}
 #chkbox{background:#111c26;border:1px solid #1e2b38;border-radius:14px;
   max-width:360px;width:100%;padding:14px 16px;color:#dbe7f3;
   max-height:72vh;overflow:auto}
@@ -226,6 +245,7 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0f1720;
   </div>
 
   <div id="actions">
+    <button class="btn" id="off" style="flex:0 0 auto">📥</button>
     <button class="btn" id="chk" style="flex:0 0 auto">🔧</button>
     <button class="btn" id="uiBig" style="flex:0 0 auto" title="字體大小">AA</button>
     <button class="btn" id="clear">清除</button>
@@ -244,11 +264,41 @@ html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0f1720;
     </div>
   </div>
 </div>
+
+<!-- ═══════ 離線地圖下載 ═══════ -->
+<div id="offPanel">
+  <div id="offBox">
+    <div id="offT">📥 離線地圖</div>
+    <div id="offSub">訊號差的巷子、地下室、山區，先把圖存到手機</div>
+
+    <select id="offRegion">
+      <option value="core">中永和·板橋·台北西區（z13-17 含巷弄，約 98MB）</option>
+      <option value="all">雙北全境（z13-16，約 385MB）</option>
+    </select>
+
+    <div id="offStored">檢查中…</div>
+    <div id="offBarWrap"><div id="offBar"></div></div>
+    <div id="offTxt">尚未開始</div>
+
+    <div id="offBtns">
+      <button class="btn" id="offStart">開始下載</button>
+      <button class="btn" id="offCancel">停止</button>
+      <button class="btn" id="offClose">關閉</button>
+    </div>
+
+    <div id="offNote">
+      ⚠️ 下載要連 WiFi，約需 20~40 分鐘。可以中途關掉，下次按「開始下載」會從中斷處續傳。
+      <br>下載完後，地圖在沒訊號時也能顯示；但「走錯路重新算路線」仍需網路。
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="diaobo.js"></script>
 <script src="nav.js"></script>
+<script src="offline-map.js"></script>
 <script>
 "use strict";
 
@@ -1190,6 +1240,18 @@ function updateDiaoboBar(){
   }
 
   btn.onclick=function(){ modal.classList.add("show"); runCheck(); runCheckUi(); };
+
+  // 離線地圖面板開關
+  var offBtn=document.getElementById("off");
+  var offPanel=document.getElementById("offPanel");
+  if(offBtn&&offPanel){
+    offBtn.onclick=function(){ offPanel.classList.add("show"); };
+    var oc=document.getElementById("offClose");
+    if(oc) oc.onclick=function(){ offPanel.classList.remove("show"); };
+    offPanel.addEventListener("click",function(e){
+      if(e.target===offPanel) offPanel.classList.remove("show");
+    });
+  }
 
   // ★ 字體大小切換：三段（標準/大字/超大），記在 localStorage，重開還記得
   (function(){
