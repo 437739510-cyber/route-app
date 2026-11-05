@@ -161,10 +161,13 @@ function buildNavUI() {
     "#navstreet{font-size:13px;color:#9fb3c8;margin-top:3px;",
     "white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
     "#navmap{flex:1;background:#1a2332;position:relative}",
-    "#navbottom{background:#111c26;padding:10px 16px;display:flex;",
-    "align-items:center;gap:10px;border-top:1px solid #1e2b38}",
-    "#navinfo{flex:1;font-size:12.5px;color:#9fb3c8;line-height:1.5}",
+    "#navbottom{background:#111c26;padding:8px 12px 10px;border-top:1px solid #1e2b38}",
+    "#navinfo{font-size:13px;color:#9fb3c8;text-align:center;padding:2px 0 8px;",
+    "letter-spacing:.3px}",
     "#navinfo b{color:#e8f0f7;font-size:15px}",
+    "#navinfo .sep{margin:0 10px;color:#3a4a5a}",
+    "#navrow{display:flex;gap:10px}",
+    "#navrow .navbtn{flex:1}",
     ".navbtn{background:#1e2b38;color:#e8f0f7;border:none;border-radius:10px;min-height:48px;min-width:56px;",
     "padding:13px 16px;font-size:14px;font-weight:700;cursor:pointer;flex:0 0 auto}",
     ".navbtn.on{background:#4ade80;color:#0f1720}",
@@ -192,11 +195,13 @@ function buildNavUI() {
     '<div id="navmap"></div>',
     '<div id="navnext">下一步：—</div>',
     '<div id="navbottom">',
-    '  <div id="navinfo">剩 <b>—</b><br><span id="naveta">—</span></div>',
-    '  <button class="navbtn on" id="btnVoice">🔊 語音</button>',
-    '  <button class="navbtn" id="btnReroute">🔄 重算</button>',
-    '  <button class="navbtn" id="btnRecenter">◎ 回正</button>',
-    '  <button class="navbtn end" id="btnEnd">結束</button>',
+    '  <div id="navinfo">剩 <b>—</b><span class="sep">·</span><span id="naveta">—</span></div>',
+    '  <div id="navrow">',
+    '    <button class="navbtn on" id="btnVoice">🔊 語音</button>',
+    '    <button class="navbtn" id="btnReroute">🔄 重算</button>',
+    '    <button class="navbtn" id="btnRecenter">◎ 回正</button>',
+    '    <button class="navbtn end" id="btnEnd">結束</button>',
+    "  </div>",
     "</div>"
   ].join("");
   document.body.appendChild(d);
@@ -446,8 +451,8 @@ function updateNavUI() {
   var remTxt = NAV.remaining > 0 ? humanDist(NAV.remaining) : "快到";
   var eta = new Date(Date.now() + (NAV.route.duration || 0) * 1000);
   var hh = eta.getHours(), mm = eta.getMinutes();
-  document.getElementById("navinfo").innerHTML =
-    "剩 <b>" + remTxt + "</b><br>" +
+  document.getElementById("navinfo").querySelector("b").textContent = remTxt;
+  document.getElementById("naveta").textContent =
     "預計 " + hh + ":" + (mm < 10 ? "0" : "") + mm + " 抵達";
 }
 
