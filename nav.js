@@ -194,6 +194,7 @@ function buildNavUI() {
     '<div id="navbottom">',
     '  <div id="navinfo">剩 <b>—</b><br><span id="naveta">—</span></div>',
     '  <button class="navbtn on" id="btnVoice">🔊 語音</button>',
+    '  <button class="navbtn" id="btnReroute">🔄 重算</button>',
     '  <button class="navbtn" id="btnRecenter">◎ 回正</button>',
     '  <button class="navbtn end" id="btnEnd">結束</button>',
     "</div>"
@@ -211,6 +212,16 @@ function startNav(routeData, tripRaw) {
   NAV.offCourse = 0;
   NAV.active = true;
   NAV.remaining = routeData.distance;
+  NAV.rerouting = false;
+  NAV.rerouteTries = 0;            // 每次開始導航重設重算次數
+
+  // 記住終點與途經點（走錯路重算時要用）
+  var g0 = routeData.geometry || [];
+  if (g0.length) {
+    NAV.dest = { lat: g0[g0.length - 1][0], lng: g0[g0.length - 1][1] };
+  }
+  NAV.waypoints = (routeData.waypoints || []);
+  NAV.cfg = routeData.cfg || {};
 
   document.getElementById("navui").classList.add("on");
 
@@ -320,19 +331,91 @@ function onNavPos(pos) {
       if (dd < near) near = dd;
       if (n++ > 400) break;
     }
-    if (near > 60 && acc < 40) {
+    if (near > 80 && acc < 35) {
       NAV.offCourse = (NAV.offCourse || 0) + 1;
-      if (NAV.offCourse === 3) {
-        showNavWarn("⚠️ 偏離路線，請回到綠色路線上");
-        speak("偏離路線，請回到綠色路線上");
+      // 連續 5 次（約 5~10 秒）偏離 → 自動重算；最多試 3 次避免無限迴圈
+      if (NAV.offCourse >= 5 && !NAV.rerouting && (NAV.rerouteTries || 0) < 3) {
+        NAV.rerouteTries = (NAV.rerouteTries || 0) + 1;
+        doReroute(la, lo);
+      } else if (NAV.offCourse >= 5 && (NAV.rerouteTries || 0) >= 3) {
+        showNavWarn("⚠️ 無法自動重算，請手動選路線");
       }
     } else {
+      // 回到路線上了
+      if (NAV.offCourse > 0 && !NAV.rerouting) {
+        hideNavWarn();
+        toast("✅ 已回到路線上", 1500);
+      }
       NAV.offCourse = 0;
-      hideNavWarn();
+      NAV.rerouting = false;
     }
   }
 
   updateNavUI();
+}
+
+/* ── 自動重新規劃（走錯路時）── */
+function doReroute(la, lo) {
+  if (NAV.rerouting) return;          // 避免重複觸發
+  NAV.rerouting = true;
+
+  var dest = NAV.dest;
+  if (!dest) {
+    showNavWarn("⚠️ 偏離路線，請回到綠色路線上");
+    speak("偏離路線，請回到綠色路線上");
+    return;
+  }
+
+  showNavWarn("🔄 走錯路了，正在重新規劃…");
+  speak("走錯路了，重新規劃路線");
+
+  var locs = [{ lat: la, lng: lo }];
+  // 保留還沒到的途經點
+  (NAV.waypoints || []).forEach(function (w) { locs.push(w); });
+  locs.push(dest);
+
+  vRoute(locs, NAV.cfg || {}).then(function (res) {
+    if (!res || !res.geometry) throw new Error("重算失敗");
+
+    // 換掉路線資料
+    NAV.route = {
+      distance: res.distance,
+      duration: res.duration,
+      geometry: res.geometry,
+      maneuvers: res.maneuvers || [],
+      names: res.names || []
+    };
+    NAV.idx = 0;
+    NAV.remaining = res.distance;
+    NAV.offCourse = 0;
+    NAV.rerouting = false;
+
+    // 重畫路線
+    if (NAV.lineLayer) NAV.map.removeLayer(NAV.lineLayer);
+    NAV.lineLayer = L.polyline(res.geometry, {
+      color: "#4ade80", weight: 7, opacity: 0.95, lineCap: "round"
+    }).addTo(NAV.map);
+
+    // 重畫終點
+    var g = res.geometry;
+    if (NAV.endMarker) NAV.map.removeLayer(NAV.endMarker);
+    NAV.endMarker = L.circleMarker(g[g.length - 1], {
+      radius: 9, color: "#fff", weight: 3,
+      fillColor: "#ef4444", fillOpacity: 1
+    }).addTo(NAV.map);
+
+    hideNavWarn();
+    updateNavUI();
+    speak("已重新規劃，" + (res.maneuvers[1] ? res.maneuvers[1].text : "繼續前行"));
+
+    // 震一下提醒（有支援才震）
+    if (navigator.vibrate) navigator.vibrate(200);
+  }).catch(function (e) {
+    NAV.rerouting = false;
+    showNavWarn("⚠️ 重新規劃失敗，請手動回到路線");
+    speak("重新規劃失敗，請回到原本的路線");
+    console.warn("[reroute]", e);
+  });
 }
 
 /* ── 更新導航畫面 ── */
@@ -429,5 +512,10 @@ document.addEventListener("click", function (e) {
   }
   if (t.id === "btnRecenter" && NAV.lastPos) {
     NAV.map.setView([NAV.lastPos.lat, NAV.lastPos.lng], 17, { animate: true });
+  }
+  if (t.id === "btnReroute") {
+    if (!NAV.lastPos) { toast("還沒定位到，稍等幾秒再按", 2200); return; }
+    NAV.offCourse = 2;               // 讓它通過判斷
+    doReroute(NAV.lastPos.lat, NAV.lastPos.lng);
   }
 });
