@@ -6,7 +6,7 @@
  *   - 地图砖：先网络后缓存（离线时显示看过的区域）
  */
 
-var CACHE = "route-app-v25";   // ★每次部署代码必须 +1，否则旧缓存永远不更新
+var CACHE = "route-app-v26";   // ★每次部署代码必须 +1，否则旧缓存永远不更新
 var SHELL = [
   "./",
   "./index.html",
@@ -51,9 +51,13 @@ self.addEventListener("fetch", function (e) {
     return;
   }
 
-  // 2) 地图砖：先查缓存（离线地图下载过的立即显示，不用等网络超时）
+  // 2) 地图砖：先查缓存（离线地图下载过的立即显示）
   if (/tile|arcgisonline|openstreetmap|map/i.test(url.hostname) &&
       !/\/route-app\//.test(url.pathname)) {
+    // ★ 下载器请求带 _dl=1 标记 → 直接放行走网络，避免 SW 与下载器互相打架
+    if (url.searchParams.get("_dl") === "1") {
+      return;
+    }
     e.respondWith(
       caches.match(req).then(function (hit) {
         if (hit) return hit;          // ★ 命中离线地图 → 秒开
