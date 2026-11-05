@@ -712,7 +712,12 @@ function applyPlan(i){
   var p=plans[i];
   route={ distance:p.distance, duration:p.duration,
           geometry:p.geometry, legs:p.legs,
-          maneuvers:p.maneuvers, names:p.names };
+          maneuvers:p.maneuvers, names:p.names,
+          cfg:(STRATS[p.key]?STRATS[p.key].cfg:{}),
+          waypoints:(function(){
+            var seq=(order.length===pts.length&&order.length)?order:pts.map(function(_,i){return i;});
+            return seq.slice(1,-1).map(function(i){ return {lat:pts[i].lat,lng:pts[i].lng}; });
+          })() };
   render(); save();
 }
 
