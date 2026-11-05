@@ -97,39 +97,63 @@
     try { return JSON.parse(localStorage.getItem(LS_PROG) || "null"); } catch (e) { return null; }
   }
 
-  /* 核心：並發下載，已存在的跳過 */
+  /* 核心：並發下載，已存在的跳過，失敗自動重試 */
   async function download(regionKey) {
     var reg = REGIONS[regionKey];
     if (!reg) return;
     var list = tileList(reg);
     ST.total = list.length;
     ST.done = 0; ST.fail = 0; ST.skip = 0; ST.running = true; ST.abort = false;
+    ST.attempted = 0;
     paint();
 
     var cache = await caches.open(TILE_CACHE);
-    var i = 0;
+    var idx = 0;
+    var MAX_RETRY = 2;
 
-    async function worker() {
-      while (i < list.length && !ST.abort) {
-        var t = list[i++];
-        var url = tileUrl(t);
+    async function fetchOne(t) {
+      var url = tileUrl(t);
+      try {
+        var hit = await cache.match(url);
+        if (hit) { ST.skip++; return; }
+      } catch (e) { /* 读缓存失败就当没命中 */ }
+
+      for (var attempt = 0; attempt <= MAX_RETRY; attempt++) {
         try {
-          var hit = await cache.match(url);
-          if (hit) { ST.skip++; }
-          else {
-            var r = await fetch(url, { mode: "cors" });
-            if (r && r.status === 200) {
-              await cache.put(url, r.clone());
+          var cleanUrl = url;    // 地图取图用的干净地址（缓存键必须是这个）
+          var dlUrl = url + (url.indexOf("?") < 0 ? "?" : "&") + "_dl=1";
+          var r = await fetch(dlUrl, { mode: "cors", cache: "no-store" });
+          if (r && r.status === 200) {
+            var blob = await r.blob();
+            if (blob && blob.size > 0) {
+              // ★ 用 cleanUrl 当键，地图正常取图时才命中
+              await cache.put(new Request(cleanUrl), new Response(blob, {
+                headers: { "Content-Type": "image/png" }
+              }));
               ST.done++;
-            } else {
-              ST.fail++;
+              return;
             }
           }
-        } catch (e) {
-          ST.fail++;
+          if (r && r.status === 404) { ST.fail++; return; }   // 该级没这张图，正常
+        } catch (e) { /* 重试 */ }
+        if (attempt < MAX_RETRY) {
+          await new Promise(function (s) { setTimeout(s, 350 * (attempt + 1)); });
         }
-        if ((ST.done + ST.skip) % 20 === 0) { paint(); saveProg(regionKey, i); }
-        if ((ST.done + ST.skip) % 200 === 0) await new Promise(function (s) { setTimeout(s, 60); });
+      }
+      ST.fail++;
+    }
+
+    async function worker() {
+      while (true) {
+        var my = idx++;
+        if (my >= list.length || ST.abort) return;
+        await fetchOne(list[my]);
+        ST.attempted++;
+        if (ST.attempted % 10 === 0) paint();
+        if (ST.attempted % 10 === 0) saveProg(regionKey, ST.attempted);
+        if (ST.attempted % 120 === 0) {
+          await new Promise(function (s) { setTimeout(s, 120); });  // 温柔一点
+        }
       }
     }
 
@@ -138,13 +162,14 @@
     await Promise.all(ws);
 
     ST.running = false;
-    saveProg(regionKey, i);
+    saveProg(regionKey, ST.attempted);
     paint();
     var u = ui();
-    if (u.btn) u.btn.textContent = "重新檢查";
+    if (u.btn) u.btn.textContent = "繼續下載（可重複點）";
     if (typeof toast === "function") {
-      toast(ST.abort ? "已停止，下次會續傳" : ("離線地圖完成：" + ST.done + " 張新增，失敗 " + ST.fail),
-        ST.abort ? 2500 : 4000);
+      toast(ST.abort ? ("已停止，下次會續傳（已完成 " + (ST.done + ST.skip) + " 張）")
+                     : ("離線地圖完成：新增 " + ST.done + " 張，失敗 " + ST.fail + " 張"),
+        ST.abort ? 3000 : 4500);
     }
   }
 
