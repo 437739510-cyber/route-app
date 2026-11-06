@@ -135,6 +135,42 @@ function turnText(t) {
   return TURN_TEXT[t] || "繼續前行";
 }
 
+/* ── 機車左轉三分法（台灣規則）──
+   1) 高架道路：絕對禁止左轉（會跟直行汽車對撞）
+   2) 有待轉標誌路口：兩段式左轉
+   3) 一般路口無待轉：可直接左轉
+   具體判斷放在 leftrule.js 的 LEFT_RULE */
+function isLeftTurn(t) {
+  return t === 14 || t === 15 || t === 19 || t === 21 || t === 24;
+}
+
+function leftInfo(m) {
+  try {
+    if (window.LEFT_RULE && window.LEFT_RULE.leftRule) return window.LEFT_RULE.leftRule(m);
+  } catch (e) {}
+  return isLeftTurn(m.type) ? {
+    level: "hook", title: "🔄 兩段式左轉（進待轉區）",
+    detail: "先騎進待轉區，等綠燈再左轉",
+    speech: "前方請兩段式左轉，先騎進待轉區",
+    color: "#b45309"
+  } : null;
+}
+
+/* 給人看的轉彎指令 */
+function turnInstruction(m) {
+  var li = leftInfo(m);
+  if (li) return li.title;
+  return turnText(m.type);
+}
+
+/* 語音版本 */
+function turnSpeech(m) {
+  var li = typeof m === "object" ? leftInfo(m) : null;
+  if (li) return li.speech;
+  return turnText(typeof m === "object" ? m.type : m);
+}
+
+
 function turnIcon(t) {
   return TURN_ICON[t] || "⬆️";
 }
@@ -156,6 +192,28 @@ function extractManeuvers(trip, geometry) {
     var ms = leg.maneuvers || [];
     ms.forEach(function (m, mi) {
       var street = (m.street_names && m.street_names.length) ? m.street_names[0] : "";
+      var ref = "";
+      // Valhalla 有時把路號放在 street_names 的其他項或 begin_street_names
+      try {
+        if (m.begin_street_names && m.begin_street_names.length) {
+          for (var si = 0; si < m.begin_street_names.length; si++) {
+            if (/^(台|市|縣|省)?\d+/.test(m.begin_street_names[si])) { ref = m.begin_street_names[si]; break; }
+          }
+        }
+        if (!ref && m.street_names) {
+          for (var sj = 0; sj < m.street_names.length; sj++) {
+            if (/^(台|市|縣|省)?\d+/.test(m.street_names[sj])) { ref = m.street_names[sj]; break; }
+          }
+        }
+      } catch (e) {}
+      // 把「快速道路」等關鍵字也併進 street 一起判斷
+      var streetFull = street;
+      if (m.begin_street_names && m.begin_street_names.length) {
+        for (var sk = 0; sk < m.begin_street_names.length; sk++) {
+          var sn = m.begin_street_names[sk];
+          if (sn && streetFull.indexOf(sn) < 0) streetFull += " " + sn;
+        }
+      }
       var pt = null;
       if (geometry && geometry.length && m.begin_shape_index != null) {
         // 第一段 leg 不用加偏移；後續 leg 的索引要接在前一段後面
@@ -165,13 +223,16 @@ function extractManeuvers(trip, geometry) {
       out.push({
         type: m.type,
         text: turnText(m.type),
-        street: street,
+        street: streetFull,
+        ref: ref,
         length: m.length * 1000,        // 這一段長度（公尺）
         time: m.time,
         begin: m.begin_shape_index,
         end: m.end_shape_index,
         lat: pt ? pt[0] : null,
         lng: pt ? pt[1] : null,
+        bearingBefore: (m.bearing_before != null ? m.bearing_before : null),
+        bearingAfter: (m.bearing_after != null ? m.bearing_after : null),
         cumStart: cum
       });
       cum += m.length * 1000;
@@ -201,33 +262,44 @@ function buildNavUI() {
     "#navui{position:fixed;inset:0;background:#0f1720;z-index:9000;display:none;",
     "flex-direction:column;font-family:-apple-system,'Noto Sans TC',sans-serif}",
     "#navui.on{display:flex}",
-    "#navtop{background:#111c26;color:#e8f0f7;padding:12px 16px;",
-    "border-bottom:1px solid #1e2b38;display:flex;align-items:center;gap:16px}",
-    "#navturn{font-size:calc(46px * var(--uiScale,1.25));line-height:1;flex:0 0 auto}",
-    "#navmain{flex:1;min-width:0}",
-    /* 層級對調：轉彎動作最大，距離改小字放右邊 */
-    "#navtext{font-size:calc(33px * var(--uiScale,1.25));font-weight:900;color:#fff;line-height:1.05}",
-    "#navstreet{font-size:calc(19px * var(--uiScale,1.25));color:#e8f0f7;margin-top:3px;font-weight:700;",
-    "white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-    "#navdist{font-size:calc(17px * var(--uiScale,1.25));font-weight:900;color:#fde047;margin-top:5px;",
-    "letter-spacing:.5px}",
-    "#navmap{flex:1;background:#1a2332;position:relative}",
-    "#navbottom{background:#111c26;padding:8px 12px 10px;border-top:1px solid #1e2b38}",
-    "#navinfo{font-size:calc(13px * var(--uiScale,1.25));color:#9fb3c8;text-align:center;padding:2px 0 8px;",
-    "letter-spacing:.3px}",
-    "#navinfo b{color:#e8f0f7;font-size:calc(15px * var(--uiScale,1.25))}",
-    "#navinfo .sep{margin:0 10px;color:#3a4a5a}",
-    "#navrow{display:flex;gap:10px}",
+    "#navtop{background:#111c26;color:#e8f0f7;padding:6px 10px;",
+    "border-bottom:1px solid #1e2b38;display:flex;align-items:center;gap:10px;",
+    "max-height:64px;overflow:hidden;flex:0 0 auto}",
+    /* ★ 版面压缩：主指令限定一行，绝不换行（换行会把地图挤成一条） */
+    "#navturn{font-size:calc(30px * var(--uiScale,1.25));line-height:1;flex:0 0 auto}",
+    "#navmain{flex:1;min-width:0;overflow:hidden}",
+    "#navtext{font-size:calc(20px * var(--uiScale,1.25));font-weight:900;color:#fff;line-height:1.1;",
+    "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:middle}",
+    "#navstreet{font-size:calc(13px * var(--uiScale,1.25));color:#9fd3ff;margin-left:8px;font-weight:800;",
+    "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-block;vertical-align:middle;max-width:58%}",
+    "#navdist{font-size:calc(15px * var(--uiScale,1.25));font-weight:900;color:#fde047;margin-left:8px;",
+    "letter-spacing:.5px;white-space:nowrap;display:inline-block;vertical-align:middle}",
+    /* ★ 路口放大圖：浮在地圖右上角，接近路口才出現 */
+    "#navjunc{position:absolute;right:8px;top:8px;width:104px;height:104px;",
+    "display:none;z-index:600;opacity:.96;filter:drop-shadow(0 3px 8px rgba(0,0,0,.5))}",
+    "#navjunc.on{display:block}",
+    "#navjunc svg{width:104px;height:104px;border-radius:12px}",
+    "#navmap{flex:1;background:#1a2332;position:relative;min-height:0;overflow:hidden}",
+    "#navbottom{background:#111c26;padding:5px 9px 7px;border-top:1px solid #1e2b38;flex:0 0 auto}",
+    "#navinfo{font-size:calc(11.5px * var(--uiScale,1.25));color:#9fb3c8;text-align:center;padding:0 0 5px;",
+    "letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+    "#navinfo b{color:#e8f0f7;font-size:calc(13px * var(--uiScale,1.25))}",
+    "#navinfo .sep{margin:0 6px;color:#3a4a5a}",
+    "#navrow{display:flex;gap:8px}",
     "#navrow .navbtn{flex:1}",
-    ".navbtn{background:#1e2b38;color:#e8f0f7;border:none;border-radius:10px;min-height:calc(48px * var(--uiScale,1.25));min-width:56px;",
-    "padding:13px 16px;font-size:calc(14px * var(--uiScale,1.25));font-weight:700;cursor:pointer;flex:0 0 auto}",
+    ".navbtn{background:#1e2b38;color:#e8f0f7;border:none;border-radius:10px;min-height:calc(40px * var(--uiScale,1.25));min-width:48px;",
+    "padding:9px 10px;font-size:calc(12.5px * var(--uiScale,1.25));font-weight:700;cursor:pointer;flex:0 0 auto}",
     ".navbtn.on{background:#4ade80;color:#0f1720}",
     ".navbtn.end{background:#ef4444;color:#fff}",
-    "#navnext{background:#132a20;border-top:1px solid #1e2b38;padding:9px 16px;",
-    "font-size:calc(12.5px * var(--uiScale,1.25));color:#86efac}",
-    "#navwarn{display:none;background:#7f1d1d;color:#fff;padding:9px 16px;",
-    "font-size:calc(13px * var(--uiScale,1.25));font-weight:700;text-align:center}",
-    "#navwarn.on{display:block}"
+    "#navnext{background:#132a20;border-top:1px solid #1e2b38;padding:6px 12px;",
+    "font-size:calc(11.5px * var(--uiScale,1.25));color:#86efac;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+    "#navwarn{display:none;background:#7f1d1d;color:#fff;padding:7px 12px;",
+    "font-size:calc(12px * var(--uiScale,1.25));font-weight:700;text-align:center}",
+    "#navwarn.on{display:block}",
+    "#navleftwarn{display:none;background:#b45309;color:#fff;padding:5px 10px;font-weight:800;",
+    "font-size:calc(13px * var(--uiScale,1.25));white-space:nowrap;overflow:hidden;",
+    "text-overflow:ellipsis;flex:0 0 auto}",
+    "#navleftwarn.on{display:block}"
   ].join("");
   document.head.appendChild(css);
 
@@ -235,12 +307,11 @@ function buildNavUI() {
   d.id = "navui";
   d.innerHTML = [
     '<div id="navwarn"></div>',
+    '<div id="navleftwarn" style="display:none"></div>',
     '<div id="navtop">',
     '  <div id="navturn">➡️</div>',
     '  <div id="navmain">',
-    '    <div id="navtext">準備出發</div>',
-    '    <div id="navstreet"></div>',
-    '    <div id="navdist">—</div>',
+    '    <span id="navtext">準備出發</span><span id="navstreet"></span><span id="navdist">—</span>',
     "  </div>",
     "</div>",
     '<div id="navmap"></div>',
@@ -249,6 +320,7 @@ function buildNavUI() {
     '  <div id="navinfo">剩 <b>—</b><span class="sep">·</span><span id="naveta">—</span></div>',
     '  <div id="navrow">',
     '    <button class="navbtn on" id="btnVoice">🔊 語音</button>',
+    '    <button class="navbtn on" id="btnRotate">🧭 車頭朝前</button>',
     '    <button class="navbtn" id="btnRecenter">◎ 回正</button>',
     '    <button class="navbtn end" id="btnEnd">結束</button>',
     "  </div>",
@@ -313,6 +385,37 @@ function startNav(routeData, tripRaw) {
   document.getElementById("navui").classList.add("on");
   keepAwakeOn();                      // 導航中螢幕不睡
 
+  // ★ 啟動 Android 常駐前台服務：切到熊貓/鎖屏，導航與 GPS 都不中斷
+  try {
+    if (window.AndroidTTS && window.AndroidTTS.startNavForeground) {
+      window.AndroidTTS.startNavForeground();
+    }
+  } catch (e) {}
+
+  // ★ 主動警告：這條路線會不會讓機車上高架
+  try {
+    if (window.LEFT_RULE && LEFT_RULE.scanElevated) {
+      var elv = LEFT_RULE.scanElevated(routeData.maneuvers);
+      var wb = document.getElementById("navwarn");
+      if (elv.length && wb) {
+        var names = [];
+        for (var ei = 0; ei < Math.min(elv.length, 3); ei++) {
+          if (names.indexOf(elv[ei].street) < 0) names.push(elv[ei].street);
+        }
+        wb.className = "on";
+        wb.textContent = "⚠️ 此路線會上高架：" + names.join("、") +
+                         "（機車若禁行請改走平面）";
+        // 語音提醒一次
+        setTimeout(function () {
+          speak("注意，這條路線會上高架道路，如果機車不能走，請改走平面道路");
+        }, 1200);
+      } else if (wb) {
+        wb.className = "";
+        wb.textContent = "";
+      }
+    }
+  } catch (e) {}
+
   // 導航專用地圖
   if (NAV.map) { NAV.map.remove(); NAV.map = null; }
   NAV.map = L.map("navmap", {
@@ -367,9 +470,43 @@ function startNav(routeData, tripRaw) {
     toast("此裝置不支援定位", 3000);
   }
 
+  // ★ 從熊貓切回來時，用原生常駐服務的位置補上（避免定位斷層）
+  startNativeGpsBridge();
+
   updateNavUI();
   speak("開始導航");
   warnDiaoboOnRoute(routeData.names || []);
+}
+
+/* ★ 原生 GPS 橋接：每 2 秒檢查原生服務的位置，
+   當網頁 GPS 停更（切到別的 App、或 WebView 被暫停）時用它續上。 */
+var NAV_GPS_TIMER = null;
+function startNativeGpsBridge() {
+  stopNativeGpsBridge();
+  NAV_GPS_TIMER = setInterval(function () {
+    if (!NAV.active) return;
+    try {
+      if (!window.AndroidTTS || !window.AndroidTTS.getLastLocation) return;
+      var raw = window.AndroidTTS.getLastLocation();
+      if (!raw) return;
+      var p = raw.split(",");
+      if (p.length < 4) return;
+      var la = parseFloat(p[0]), lo = parseFloat(p[1]);
+      var acc = parseFloat(p[2]), t = parseInt(p[3], 10);
+      if (!isFinite(la) || !isFinite(lo) || la === 0) return;
+      // 比網頁自己的 GPS 新才採用
+      var mine = NAV.lastPos ? (NAV.lastPos.ts || 0) : 0;
+      if (t <= mine) return;
+      onNavPos({
+        coords: { latitude: la, longitude: lo, accuracy: acc > 0 ? acc : 30 },
+        timestamp: t
+      });
+    } catch (e) {}
+  }, 2000);
+}
+
+function stopNativeGpsBridge() {
+  if (NAV_GPS_TIMER) { clearInterval(NAV_GPS_TIMER); NAV_GPS_TIMER = null; }
 }
 
 /* ── 導航中：位置更新 ── */
@@ -377,7 +514,7 @@ function onNavPos(pos) {
   var la = pos.coords.latitude, lo = pos.coords.longitude;
   var acc = pos.coords.accuracy || 999;
 
-  NAV.lastPos = { lat: la, lng: lo };
+  NAV.lastPos = { lat: la, lng: lo, ts: pos.timestamp || Date.now() };
 
   // 我的位置標記
   if (!NAV.meMarker) {
@@ -387,6 +524,9 @@ function onNavPos(pos) {
   } else {
     NAV.meMarker.setLatLng([la, lo]);
   }
+
+  // ★ 車頭朝前：算出騎行方向，把地圖轉成「你正面朝上」
+  updateHeading(la, lo, pos);
 
   // 地圖跟隨：人走了就讓地圖跟上（原本只判斷 zoom，導致人騎出螢幕也不跟）
   // 規則：使用者沒手動拖地圖時，人偏離畫面中心超過 90m 就平滑跟上
@@ -568,6 +708,7 @@ function updateNavUI() {
   var distToNext = cur.length;
   var showText = cur.text, showStreet = cur.street || "";
   var showIcon = turnIcon(cur.type);
+  var showType = cur.type;
 
   // 出發/直行等「沒有指令價值」的段落 → 往前找第一個真正要做的動作
   var NO_INFO = [1,2,3,7,8,21,22];
@@ -581,15 +722,68 @@ function updateNavUI() {
         showText = nx.text;
         showStreet = nx.street || "";
         showIcon = turnIcon(nx.type);
+        showType = nx.type;
         break;
       }
     }
+  }
+
+  // ★ 機車左轉三分法：高架禁止 / 待轉區 / 可直接左轉
+  var li = leftInfo({ type: showType, street: cur.street, ref: cur.ref, lat: cur.lat, lng: cur.lng });
+  var leftWarn = !!li;
+  // ★ 主指令只放「左轉」，不要塞長句（塞了會被撐成三行，把地圖擠掉）
+  if (li) {
+    if (li.level === "banned") showText = "禁止左轉";
+    else if (li.level === "hook") showText = "兩段式左轉";
+    else showText = "左轉";
   }
 
   document.getElementById("navdist").textContent = humanDist(distToNext);
   document.getElementById("navtext").textContent = showText;
   document.getElementById("navstreet").textContent = showStreet;
   document.getElementById("navturn").textContent = showIcon;
+
+  // 左轉規則提示條（★ 一行為限，短句，不要吃掉地圖空間）
+  var lw = document.getElementById("navleftwarn");
+  if (lw) {
+    if (li) {
+      lw.style.display = "block";
+      lw.style.background = li.color;
+      if (li.level === "banned") lw.textContent = "⛔ 高架禁左轉・直行走出口";
+      else if (li.level === "hook") lw.textContent = "🔄 進待轉區等綠燈";
+      else lw.textContent = "↰ 無待轉資訊・看現場標誌";
+    } else {
+      lw.style.display = "none";
+    }
+  }
+
+  // ★ 路口放大圖：接近路口（<200m）才顯示，讓你看清往哪走
+  try {
+    var jb = document.getElementById("navjunc");
+    var mapEl = document.getElementById("navmap");
+    if (!jb && mapEl) {
+      // 動態插入地圖容器內，才會浮在地圖上（放外面會被地圖層蓋住）
+      jb = document.createElement("div");
+      jb.id = "navjunc";
+      mapEl.appendChild(jb);
+    }
+    if (jb && window.JUNCTION_VIEW) {
+      var ang = JUNCTION_VIEW.turnAngle(cur.bearingBefore, cur.bearingAfter);
+      // ★ 250m 內且有轉彎才顯示（200m 太晚，騎 40km/h 只剩 18 秒）
+      var needJunc = distToNext <= 250 && Math.abs(ang) >= 20;
+      if (needJunc) {
+        if (jb.dataset.ang !== String(Math.round(ang))) {
+          jb.innerHTML = JUNCTION_VIEW.buildSVG(ang, showStreet, li || {});
+          jb.dataset.ang = String(Math.round(ang));
+        }
+        jb.className = "on";
+      } else {
+        jb.className = "";
+        jb.innerHTML = "";
+        delete jb.dataset.ang;
+      }
+    }
+  } catch (e) {}
 
   document.getElementById("navnext").textContent = next
     ? "下一步：" + next.text + (next.street ? " → " + next.street : "")
@@ -610,7 +804,8 @@ function speakNext() {
   if (!nx) { speak("已抵達目的地"); return; }
   var s = "";
   if (nx.length > 200) s += "再走 " + humanDist(nx.length) + "，";
-  s += nx.text;
+  // ★ 左轉改用三分法說法
+  s += turnSpeech(nx);
   if (nx.street) s += "，進入" + nx.street;
   speak(s);
 }
@@ -643,12 +838,25 @@ function endNav() {
     navigator.geolocation.clearWatch(NAV.watchId);
     NAV.watchId = null;
   }
+  // ★ 停止 Android 常駐服務
+  try {
+    if (window.AndroidTTS && window.AndroidTTS.stopNavForeground) {
+      window.AndroidTTS.stopNavForeground();
+    }
+  } catch (e) {}
   if (window.speechSynthesis) speechSynthesis.cancel();
+  // 停止原生語音
+  try { if (window.AndroidTTS && window.AndroidTTS.stop) window.AndroidTTS.stop(); } catch (e) {}
+  stopNativeGpsBridge();
   var el = document.getElementById("navui");
   if (el) el.classList.remove("on");
   if (NAV.map) { NAV.map.remove(); NAV.map = null; }
   NAV.meMarker = null;
   NAV.lineLayer = null;
+  // ★ 旋轉包裝層綁在舊地圖上，地圖銷毀後一定要清掉，否則下次導航拿到失效參照
+  try { if (window.NAV_ROTATE) NAV_ROTATE.reset(); } catch (e) {}
+  var ow = document.querySelector(".nav-rot-wrap");
+  if (ow) ow.remove();
   hideNavWarn();
 }
 
@@ -679,6 +887,13 @@ document.addEventListener("click", function (e) {
   if (t.id === "btnRecenter" && NAV.lastPos) {
     NAV.manualPanAt = 0;             // 取消 10 秒等待，立刻跟回
     NAV.map.setView([NAV.lastPos.lat, NAV.lastPos.lng], 17, { animate: true });
+  }
+  if (t.id === "btnRotate") {
+    var on = !(window.NAV_ROTATE && NAV_ROTATE.isEnabled());
+    if (window.NAV_ROTATE) NAV_ROTATE.setEnabled(on);
+    t.classList.toggle("on", on);
+    t.textContent = on ? "🧭 車頭朝前" : "🗺️ 上北下南";
+    speak(on ? "已切換為車頭朝前" : "已切換為上北下南");
   }
 });
 
