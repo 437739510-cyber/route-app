@@ -279,6 +279,10 @@ function buildNavUI() {
     "display:none;z-index:600;opacity:.96;filter:drop-shadow(0 3px 8px rgba(0,0,0,.5))}",
     "#navjunc.on{display:block}",
     "#navjunc svg{width:104px;height:104px;border-radius:12px}",
+    /* 我的位置箭頭（divIcon 內層） */
+    ".nav-me{background:none!important;border:none!important}",
+    ".nav-me-arrow{width:34px;height:34px;transition:transform .25s ease-out;",
+    "filter:drop-shadow(0 2px 4px rgba(0,0,0,.45))}",
     "#navmap{flex:1;background:#1a2332;position:relative;min-height:0;overflow:hidden}",
     "#navbottom{background:#111c26;padding:5px 9px 7px;border-top:1px solid #1e2b38;flex:0 0 auto}",
     "#navinfo{font-size:calc(11.5px * var(--uiScale,1.25));color:#9fb3c8;text-align:center;padding:0 0 5px;",
@@ -511,6 +515,84 @@ function stopNativeGpsBridge() {
   if (NAV_GPS_TIMER) { clearInterval(NAV_GPS_TIMER); NAV_GPS_TIMER = null; }
 }
 
+/* ── 把我的位置固定在畫面下方（用實測回饋校正，不靠角度推算） ── */
+function followMe(la, lo) {
+  try {
+    var clip = document.querySelector(".nav-clip");
+    if (!clip || !NAV.map) return;
+    var ch = clip.clientHeight;
+    if (!ch) return;
+    var want = 0.70;
+    var me = document.querySelector(".nav-me");
+    if (!me) return;
+
+    var cr = clip.getBoundingClientRect();
+
+    function curPct() {
+      var m = document.querySelector(".nav-me");
+      if (!m) return want;
+      return (m.getBoundingClientRect().top - cr.top) / ch;
+    }
+
+    var p0 = curPct();
+    if (Math.abs(p0 - want) < 0.04) return;      // 4% 內不動
+
+    var z = NAV.map.getZoom();
+    // 先移動 1/3 的誤差，再用實測結果決定方向對不對（自適應，不依賴旋轉公式）
+    var tested = NAV._followDir;                  // +1 / -1，上次驗證有效的方向
+    var movePx = Math.abs((p0 - want) * ch) * 0.6;
+
+    function applyShift(sign) {
+      var c0 = NAV.map.getCenter();
+      var cp = NAV.map.project(c0, z);
+      var t = NAV.map.unproject([cp.x, cp.y + sign * movePx], z);
+      NAV.map.setView(t, z, { animate: false });
+    }
+
+    if (tested == null) {
+      // 第一次：先試往下推，量效果
+      applyShift(+1);
+      var p1 = curPct();
+      if (Math.abs(p1 - want) < Math.abs(p0 - want)) {
+        NAV._followDir = +1;
+      } else {
+        applyShift(-2);                           // 反向推回並多推一次
+        NAV._followDir = -1;
+      }
+    } else {
+      applyShift(tested);
+    }
+  } catch (e) {}
+}
+
+/* ── 由路線切線算車頭方向（比 GPS 移動方向穩） ── */
+function routeHeading(la, lo) {
+  try {
+    if (!NAV.lineLayer) return null;
+    var pts = NAV.lineLayer.getLatLngs();
+    if (!pts || pts.length < 4) return null;
+
+    // 找離我最近的路線點
+    var ni = 0, nd = Infinity;
+    for (var i = 0; i < pts.length; i++) {
+      var d = haversine(la, lo, pts[i].lat, pts[i].lng);
+      if (d < nd) { nd = d; ni = i; }
+    }
+    if (nd > 80) return null;            // 離路線太遠（走錯路）就不參考
+
+    // 從最近點往前找約 25 公尺的點，用這兩點算方向
+    var acc = 0, j = ni;
+    while (j < pts.length - 1 && acc < 25) {
+      acc += haversine(pts[j].lat, pts[j].lng, pts[j + 1].lat, pts[j + 1].lng);
+      j++;
+    }
+    if (j <= ni) return null;
+
+    var b = NAV_ROTATE.bearing(pts[ni].lat, pts[ni].lng, pts[j].lat, pts[j].lng);
+    return (b + 360) % 360;
+  } catch (e) { return null; }
+}
+
 /* ── 導航中：位置更新 ── */
 function onNavPos(pos) {
   var la = pos.coords.latitude, lo = pos.coords.longitude;
@@ -518,26 +600,37 @@ function onNavPos(pos) {
 
   NAV.lastPos = { lat: la, lng: lo, ts: pos.timestamp || Date.now() };
 
-  // 我的位置標記
+  // 我的位置標記（帶車頭方向箭頭）
   if (!NAV.meMarker) {
-    NAV.meMarker = L.circleMarker([la, lo], {
-      radius: 8, color: "#fff", weight: 3, fillColor: "#3b82f6", fillOpacity: 1
+    NAV.meMarker = L.marker([la, lo], {
+      icon: L.divIcon({
+        className: "nav-me",
+        html: '<div class="nav-me-arrow"><svg viewBox="0 0 32 32" width="34" height="34">' +
+              '<circle cx="16" cy="16" r="14" fill="rgba(59,130,246,.25)"/>' +
+              '<path d="M16 5 L24 26 L16 21 L8 26 Z" fill="#3b82f6" stroke="#fff" ' +
+              'stroke-width="2" stroke-linejoin="round"/></svg></div>',
+        iconSize: [34, 34],
+        iconAnchor: [17, 17]
+      }),
+      zIndexOffset: 1000,
+      interactive: false
     }).addTo(NAV.map);
   } else {
     NAV.meMarker.setLatLng([la, lo]);
   }
 
-  // ★ 車頭朝前：算出騎行方向，把地圖轉成「你正面朝上」
+  // ★ 車頭朝前：優先「沿路線前方切線」定方向（比 GPS 移動方向穩）
+  //   GPS 移動方向在等紅燈、剛開始導航、或訊號飄移時會亂，專業導航都用路線切線
   updateHeading(la, lo, pos);
+  var rh = routeHeading(la, lo);
+  if (rh != null) {
+    NAV_ROTATE.setRouteHeading(rh);
+  }
 
-  // 地圖跟隨：人走了就讓地圖跟上（原本只判斷 zoom，導致人騎出螢幕也不跟）
-  // 規則：使用者沒手動拖地圖時，人偏離畫面中心超過 90m 就平滑跟上
+  // 地圖跟隨：把「我」固定在畫面下方 70%（上方留給前方路況，這是機車導航該有的視野）
+  // 規則：使用者沒手動拖地圖時才自動跟；人偏離理想位置超過 25m 才重設，避免每幀都動
   if (Date.now() - (NAV.manualPanAt || 0) > 10000) {
-    var c = NAV.map.getCenter();
-    var offCenter = NAV.map.distance([c.lat, c.lng], [la, lo]);
-    if (offCenter > 90) {
-      NAV.map.panTo([la, lo], { animate: true, duration: 0.5 });
-    }
+    followMe(la, lo);
   }
 
   if (!NAV.route || !NAV.route.maneuvers) return;
