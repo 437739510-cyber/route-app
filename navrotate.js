@@ -66,6 +66,15 @@
     c.style.willChange = "transform";
     c.style.transition = "transform .25s ease-out";
     ST.clip = clip; ST.el = c; ST.built = true; ST.geom = "";
+    // ★ 建好就立刻給尺寸，不能等後續呼叫（否則 Leaflet 以為自己是 0×0，地圖整片空白）
+    var W = clip.clientWidth || window.innerWidth;
+    var H = clip.clientHeight || (window.innerHeight - 150);
+    var diag = Math.ceil(Math.sqrt(W * W + H * H));
+    c.style.width = diag + "px";
+    c.style.height = diag + "px";
+    c.style.left = Math.round((W - diag) / 2) + "px";
+    c.style.top = Math.round((H - diag) / 2) + "px";
+    try { map.invalidateSize(false); } catch (e) {}
     return c;
   }
 
@@ -77,7 +86,8 @@
     if (!W || !H) return;
     var diag = Math.ceil(Math.sqrt(W * W + H * H));
     var key = (ST.enabled ? "rot" : "flat") + ":" + W + "x" + H;
-    if (ST.geom === key) return;
+    // ★ 除了 key 相同，還要檢查尺寸真的設上去了（否則 0×0 會一直卡住）
+    if (ST.geom === key && c.style.width && c.clientWidth > 0) return;
     ST.geom = key;
 
     if (ST.enabled) {
@@ -91,6 +101,8 @@
       c.style.left = "0px";
       c.style.top = "0px";
     }
+    c.style.right = "auto";
+    c.style.bottom = "auto";
     try { map.invalidateSize(false); } catch (e) {}
   }
 
@@ -99,10 +111,36 @@
     geom(map);
     if (!ST.enabled) {
       ST.el.style.transform = "rotate(0deg)";
+      setArrow(ST.heading);
       return;
     }
     // 地圖轉 -heading → 車頭朝上
     ST.el.style.transform = "rotate(" + (-ST.heading) + "deg)";
+    // 箭頭在地圖內會跟著轉，要反向轉回來才會指向行進方向
+    setArrow(ST.heading);
+  }
+
+  /** 讓藍點箭頭指向行進方向（抵消地圖旋轉） */
+  function setArrow(hdg) {
+    var el = document.querySelector(".nav-me-arrow");
+    if (!el) return;
+    // 地圖整體已轉 -hdg，箭頭本身預設朝上 → 再轉 +hdg 就回到正確方位
+    var rel = ST.enabled ? 0 : hdg;
+    el.style.transform = "rotate(" + rel + "deg)";
+    el.style.transformOrigin = "center center";
+  }
+
+  /** 由路線切線設方向（穩，不受 GPS 飄移影響） */
+  function setRouteHeading(h) {
+    if (h == null || isNaN(h)) return;
+    if (!ST.enabled) { ST.lastHeading = h; return; }
+    // ★ 第一次一定要套用（建立包裝層、設尺寸），不能因為角度沒變就跳過
+    var first = !ST.built;
+    var d = Math.abs(angleDiff(ST.heading, h));
+    if (!first && d < 6) return;
+    ST.heading = h;
+    ST.lastHeading = h;
+    apply(NAV.map);
   }
 
   function update(la, lo, pos) {
@@ -152,6 +190,7 @@
 
   global.NAV_ROTATE = {
     update: update, setEnabled: setEnabled,
+    setRouteHeading: setRouteHeading,
     isEnabled: function () { return ST.enabled; },
     getHeading: function () { return ST.heading; },
     reset: reset, bearing: bearing,
