@@ -396,7 +396,7 @@ function startNav(routeData, tripRaw) {
     }
   } catch (e) {}
 
-  // ★ 主動警告：這條路線會不會讓機車上高架
+  // ★ 主動警告：這條路線會不會讓機車走高架 / 禁行路段
   try {
     if (window.LEFT_RULE && LEFT_RULE.scanElevated) {
       var elv = LEFT_RULE.scanElevated(routeData.maneuvers);
@@ -416,6 +416,20 @@ function startNav(routeData, tripRaw) {
       } else if (wb) {
         wb.className = "";
         wb.textContent = "";
+      }
+    }
+  } catch (e) {}
+
+  // ★ 機車禁行路段檢查（Chris 實地經驗表，比圖資可靠）
+  try {
+    if (window.MOTOR_BAN && MOTOR_BAN.scan) {
+      var banHits = MOTOR_BAN.scan(routeData.maneuvers, routeData.geometry);
+      var wb2 = document.getElementById("navwarn");
+      if (banHits.length && wb2) {
+        wb2.className = "on";
+        wb2.style.background = "#991b1b";
+        wb2.textContent = MOTOR_BAN.warnText(banHits);
+        setTimeout(function () { speak(MOTOR_BAN.warnText(banHits)); }, 1600);
       }
     }
   } catch (e) {}
