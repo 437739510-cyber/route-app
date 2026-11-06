@@ -425,8 +425,11 @@ function startNav(routeData, tripRaw) {
     tap: false
   }).setView([25.03, 121.51], 16);
 
-  L.tileLayer("https://tile.openstreetmap.de/{z}/{x}/{y}.png", {
-    maxZoom: 19
+  // 底圖：CARTO Voyager（比 OSM 標準圖清爽，POI 圖示少很多，路名清楚）
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+    maxZoom: 19,
+    subdomains: "abcd",
+    attribution: "&copy; OpenStreetMap &copy; CARTO"
   }).addTo(NAV.map);
 
   // 記錄「使用者自己拖過地圖」的時間點 → 10 秒後才恢復自動跟隨
